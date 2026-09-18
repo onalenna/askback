@@ -1,4 +1,5 @@
 const { statements } = require('../db/queries');
+const { rememberMessage } = require('./history');
 
 const SETTING_KEY = 'allowed_groups';
 const META_TTL_MS = 10 * 60 * 1000;
@@ -135,6 +136,34 @@ async function listGroups(sock) {
   });
 }
 
+async function sendGroupText(sock, jid, text) {
+  if (!sock?.sendMessage) {
+    throw new Error('WhatsApp is not connected yet. Wait for the QR to be scanned.');
+  }
+  const id = String(jid || '').trim();
+  if (!id.endsWith('@g.us')) {
+    throw new Error('Pick a WhatsApp group.');
+  }
+  const body = String(text || '').replace(/\s+$/g, '').trim();
+  if (!body) throw new Error('Type a message first.');
+  if (body.length > 4000) throw new Error('That message is too long (max 4000 characters).');
+
+  const meta = await getGroupMeta(sock, id).catch(() => null);
+  if (isBroadcastGroup(meta)) {
+    throw new Error('Cannot send to a community hub. Pick a specific group.');
+  }
+
+  await sock.sendMessage(id, { text: body });
+  rememberMessage(id, {
+    id: `askback-send-${Date.now()}`,
+    fromMe: true,
+    name: 'askBack',
+    text: body,
+    ts: Date.now() / 1000,
+  });
+  return { ok: true, jid: id, name: meta?.subject || nameFromHistory(id) || id };
+}
+
 module.exports = {
   getAllowedGroupJids,
   setGroupAllowed,
@@ -143,4 +172,5 @@ module.exports = {
   getGroupMeta,
   claimExclusiveGroupReply,
   listGroups,
+  sendGroupText,
 };

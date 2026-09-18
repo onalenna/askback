@@ -134,6 +134,37 @@ async function refreshGroups() {
   }
 }
 
+function fillSendGroups(groups) {
+  const select = document.getElementById('send-group');
+  if (!select) return;
+  const current = select.value;
+  const options = (groups || []).filter((g) => !g.broadcast);
+  if (!options.length) {
+    select.innerHTML = '<option value="">No groups yet — add the bot to a WhatsApp group</option>';
+    return;
+  }
+  select.innerHTML = [
+    '<option value="">Choose a group</option>',
+    ...options.map(
+      (g) =>
+        `<option value="${escapeHtml(g.jid)}" ${g.jid === current ? 'selected' : ''}>${escapeHtml(g.name)}${
+          g.enabled ? '' : ' (silent)'
+        }</option>`
+    ),
+  ].join('');
+}
+
+async function refreshSendGroups() {
+  try {
+    fillSendGroups(await api('/api/groups'));
+  } catch (err) {
+    const select = document.getElementById('send-group');
+    if (select) {
+      select.innerHTML = `<option value="">${escapeHtml(err.message)}</option>`;
+    }
+  }
+}
+
 function renderAdmins(admins) {
   const el = document.getElementById('admins');
   if (!admins.length) {
@@ -165,6 +196,7 @@ async function refresh() {
   renderDocs(docs);
   renderQa(qa);
   renderAdmins(admins);
+  refreshSendGroups();
 }
 
 const fileInput = document.getElementById('file');
@@ -207,6 +239,30 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
     await refresh();
   } catch (err) {
     status.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
+  }
+});
+
+document.getElementById('send-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const status = document.getElementById('send-status');
+  const group = document.getElementById('send-group');
+  const text = document.getElementById('send-text');
+  const btn = e.currentTarget.querySelector('button[type="submit"]');
+  if (!group.value || !text.value.trim()) return;
+  btn.disabled = true;
+  status.textContent = 'Sending…';
+  try {
+    const result = await api('/api/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jid: group.value, text: text.value }),
+    });
+    text.value = '';
+    status.textContent = `Sent to ${result.name || 'the group'}`;
+  } catch (err) {
+    status.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
+  } finally {
+    btn.disabled = false;
   }
 });
 
@@ -383,6 +439,7 @@ function showTab(id, { updateHash = true } = {}) {
     tab.tabIndex = selected ? 0 : -1;
   });
   if (tabId === 'groups') refreshGroups();
+  if (tabId === 'knowledge') refreshSendGroups();
   if (updateHash && location.hash !== `#${tabId}`) {
     history.replaceState(null, '', `#${tabId}`);
   }

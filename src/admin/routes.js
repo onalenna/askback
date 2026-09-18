@@ -7,7 +7,7 @@ const db = require('../db');
 const { ingestFile, replaceFile, unlinkQuiet } = require('../processor/ingest');
 const { getBotMode } = require('../whatsapp/answer');
 const { getSocket } = require('../whatsapp/client');
-const { listGroups, setGroupAllowed } = require('../whatsapp/groups');
+const { listGroups, setGroupAllowed, sendGroupText } = require('../whatsapp/groups');
 const { listAdmins, addAdmin, removeAdmin } = require('../whatsapp/admins');
 
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
@@ -105,6 +105,17 @@ function createAdminRouter() {
       res.json(groups);
     } catch (err) {
       res.status(400).json({ error: err.message || 'Could not update group' });
+    }
+  });
+
+  router.post('/api/send', express.json(), async (req, res) => {
+    try {
+      const result = await sendGroupText(getSocket(), req.body?.jid, req.body?.text);
+      res.json(result);
+    } catch (err) {
+      const msg = err.message || 'Could not send message';
+      const code = /not connected/i.test(msg) ? 503 : 400;
+      res.status(code).json({ error: msg });
     }
   });
 

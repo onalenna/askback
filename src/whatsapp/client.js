@@ -49,6 +49,14 @@ async function startWhatsApp() {
 
     const onMessages = createMessageHandler(() => sock);
     sock.ev.on('messages.upsert', onMessages);
+    sock.ev.on('messages.update', async (updates) => {
+      const messages = [];
+      for (const item of updates || []) {
+        if (!item?.key || !item.update?.message) continue;
+        messages.push({ key: item.key, message: item.update.message });
+      }
+      if (messages.length) await onMessages({ type: 'notify', messages });
+    });
     sock.ev.on('messaging-history.set', ({ messages }) => {
       ingestHistoryMessages(messages);
     });

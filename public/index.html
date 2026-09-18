@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>askBack</title>
-  <link rel="stylesheet" href="/css/admin.css?v=admins" />
+  <link rel="stylesheet" href="/css/admin.css?v=send" />
 </head>
 <body>
   <header class="site-header">
@@ -68,6 +68,32 @@
       <ul id="docs" class="file-list"></ul>
 
       <div class="subsection">
+        <h3>Send to a group</h3>
+        <p class="hint">Type a message and askBack will post it in the WhatsApp group you pick.</p>
+        <form id="send-form" class="send-form">
+          <label class="field">
+            <span>Group</span>
+            <select id="send-group" required>
+              <option value="">Choose a group</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Message</span>
+            <textarea
+              id="send-text"
+              name="text"
+              rows="3"
+              maxlength="4000"
+              placeholder="Write the message…"
+              required
+            ></textarea>
+          </label>
+          <button type="submit">Send</button>
+        </form>
+        <p id="send-status" class="hint"></p>
+      </div>
+
+      <div class="subsection">
         <h3>Admins</h3>
         <p class="hint">If someone tags askBack and it has no answer, it tags these people instead of guessing.</p>
         <form id="admin-form" class="admin-form">
@@ -122,6 +148,6 @@
     </form>
   </dialog>
 
-  <script src="/js/admin.js?v=admins"></script>
+  <script src="/js/admin.js?v=send"></script>
 </body>
 </html>

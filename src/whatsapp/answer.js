@@ -61,17 +61,17 @@ function searchBlob(question, quoted, chatHistory) {
  */
 async function answerQuestion(
   rawText,
-  { chatJid, chatName, isGroup = false, chatHistory = [], quoted = '' } = {}
+  { chatJid, chatName, isGroup = false, chatHistory = [], quoted = '', fromVoice = false } = {}
 ) {
   if (getBotMode() === 'off') return null;
 
   let text = (rawText || '').replace(/\s+/g, ' ').trim();
   if (!text) return null;
 
-  const greet = !isGroup ? greetingAnswer(text) : null;
-  if (greet) return { text: greet, source: 'help', files: [] };
+  const greet = greetingAnswer(text);
+  if (greet && (!isGroup || fromVoice)) return { text: greet, source: 'help', files: [] };
 
-  if (isChitchat(text) && !quoted && !isAboutChat(text)) return null;
+  if (isChitchat(text) && !quoted && !isAboutChat(text) && !fromVoice) return null;
 
   const help = botHelpAnswer(text);
   if (help) return { text: help, source: 'help', files: [] };

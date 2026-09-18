@@ -62,6 +62,7 @@ async function sendAnswer(sock, chatJid, text, { msg, mentions = [], asVoice = f
 
 function createMessageHandler(getSock) {
   const pending = new Set();
+  const answered = new Set();
 
   return async function onMessagesUpsert({ type, messages }) {
     const sock = getSock();
@@ -71,7 +72,7 @@ function createMessageHandler(getSock) {
       if (msg?.message) rememberWaMessage(msg);
       if (type !== 'notify') continue;
       try {
-        await handleOne(sock, msg, pending);
+        await handleOne(sock, msg, pending, answered);
       } catch (err) {
         console.error('[whatsapp] handler error:', err.message || err);
       }
@@ -79,7 +80,7 @@ function createMessageHandler(getSock) {
   };
 }
 
-async function handleOne(sock, msg, pending) {
+async function handleOne(sock, msg, pending, answered) {
   if (!msg.message || msg.key.fromMe) return;
 
   const chatJid = msg.key.remoteJid;
@@ -97,32 +98,31 @@ async function handleOne(sock, msg, pending) {
   if (!rawText && !hasAudio) return;
 
   const dedupeKey = `${chatJid}:${msg.key.id}`;
-  if (pending.has(dedupeKey)) return;
+  if (answered.has(dedupeKey) || pending.has(dedupeKey)) return;
   pending.add(dedupeKey);
 
   try {
     let raw = rawText;
-    if (!raw && hasAudio) {
+    if (hasAudio && (!raw || voiceIn)) {
+      console.log('[whatsapp] voice note received — transcribing');
       try {
-        await sock.sendPresenceUpdate('composing', chatJid);
+        await sock.sendPresenceUpdate('recording', chatJid);
       } catch {
         /* presence is optional */
       }
       try {
-        await ensureChatHistory(sock, chatJid, msg, { wait: true });
-        raw = await transcribeVoiceNote(sock, msg, {
+        const heard = await transcribeVoiceNote(sock, msg, {
           chatContext: formatChatContext(recentChatLines(chatJid, msg.key.id)),
           quoted,
         });
+        if (heard) raw = heard;
       } catch (err) {
         console.error('[whatsapp] voice note transcription failed:', err.message || err);
-        console.log('[whatsapp] did not understand the audio — staying silent');
-        return;
       }
-      if (raw) {
+      if (raw && raw !== rawText) {
         trackMessage(msg, raw);
         console.log(`[whatsapp] voice note understood: ${raw.slice(0, 80)}`);
-      } else {
+      } else if (!raw) {
         console.log('[whatsapp] did not understand the audio — staying silent');
         return;
       }
@@ -179,6 +179,7 @@ async function handleOne(sock, msg, pending) {
           isGroup,
           chatHistory,
           quoted,
+          fromVoice: voiceIn,
         })
       : null;
 
@@ -238,6 +239,7 @@ async function handleOne(sock, msg, pending) {
     console.log(
       `[whatsapp] replied (${result.source}) only to ${isGroup ? chatName || 'group' : 'private'} chat`
     );
+    answered.add(dedupeKey);
   } finally {
     pending.delete(dedupeKey);
   }

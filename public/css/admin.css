@@ -427,15 +427,37 @@ dialog::backdrop { background: rgba(18, 21, 26, 0.45); }
 
 .field input[type="text"],
 .field input[type="tel"],
-.field input[type="file"] {
+.field input[type="file"],
+.field select,
+.field textarea {
   width: 100%;
   min-height: var(--tap);
   border-radius: 12px;
   border: 1px solid var(--line);
   background: #fff;
   color: var(--ink);
+  font-family: inherit;
   font-size: 16px;
   padding: 0.55rem 0.75rem;
+}
+
+.field textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.send-form {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.send-form .field {
+  margin-bottom: 0;
+}
+
+.send-form button {
+  justify-self: start;
 }
 
 @media (min-width: 840px) {
@@ -485,11 +507,15 @@ dialog::backdrop { background: rgba(18, 21, 26, 0.45); }
 @media (max-width: 480px) {
   .card { padding: 1rem; }
   .upload-form,
-  .admin-form { grid-template-columns: 1fr; }
+  .admin-form,
+  .send-form { grid-template-columns: 1fr; }
   .file-actions button,
   .dialog-actions button,
   .upload-form button,
-  .admin-form button {
+  .admin-form button,
+  .send-form button {
     flex: 1 1 100%;
+    justify-self: stretch;
+    width: 100%;
   }
 }
