@@ -1,5 +1,6 @@
 async function api(path, options = {}) {
-  const res = await fetch(path, options);
+  const base = window.ASKBACK_BASE || '';
+  const res = await fetch(`${base}${path}`, options);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
@@ -461,7 +462,7 @@ document.getElementById('docs').addEventListener('click', async (e) => {
     return;
   }
   if (action === 'download') {
-    window.location.href = `/api/documents/${id}/file`;
+    window.location.href = `${window.ASKBACK_BASE || ''}/api/documents/${id}/file`;
     return;
   }
   if (action === 'delete') {

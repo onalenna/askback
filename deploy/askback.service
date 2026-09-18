@@ -1,0 +1,16 @@
+[Unit]
+Description=askBack WhatsApp assistant and admin panel
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/askback
+EnvironmentFile=/opt/askback/.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+User=askback
+Group=askback
+
+[Install]
+WantedBy=multi-user.target

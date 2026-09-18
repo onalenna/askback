@@ -4,16 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>askBack</title>
-  <link rel="stylesheet" href="/css/admin.css?v=tagstrict" />
+  <link rel="stylesheet" href="{{BASE}}/css/admin.css?v=online" />
+  <script>window.ASKBACK_BASE = "{{BASE}}";</script>
 </head>
 <body>
   <header class="site-header">
     <div class="header-inner">
       <a class="brand" href="#knowledge" aria-label="askBack">
         <span class="brand-logos">
-          <img class="logo logo-undp" src="/images/undp-logo.png" alt="UNDP" />
+          <img class="logo logo-undp" src="{{BASE}}/images/undp-logo.png" alt="UNDP" />
           <span class="logo-rule" aria-hidden="true"></span>
-          <img class="logo logo-unipod" src="/images/unipod-logo.svg" alt="UniPod" />
+          <img class="logo logo-unipod" src="{{BASE}}/images/unipod-logo.svg" alt="UniPod" />
         </span>
         <span class="bot-name">askBack</span>
       </a>
@@ -163,6 +164,6 @@
     </form>
   </dialog>
 
-  <script src="/js/admin.js?v=tagstrict"></script>
+  <script src="{{BASE}}/js/admin.js?v=online"></script>
 </body>
 </html>
