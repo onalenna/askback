@@ -1,4 +1,5 @@
 const { listAdmins } = require('./admins');
+const { phrase } = require('../ai/language');
 
 const CHITCHAT = new Set([
   'ok',
@@ -53,11 +54,29 @@ function isChitchat(text) {
   return CHITCHAT.has(t);
 }
 
+function isDocSummaryRequest(text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!t) return false;
+  if (!/\b(summar(y|ise|ize)|overview|tl;dr|tldr|key points|main points)\b/i.test(t)) return false;
+  if (/\b(document|file|pdf|doc|paper|report|notes?|attachment)\b/i.test(t)) return true;
+  if (/\b(chat|group|conversation|messages?|thread)\b/i.test(t)) return false;
+  return true;
+}
+
 function isAboutChat(text) {
   const t = String(text || '').replace(/\s+/g, ' ').trim();
   if (!t || isChitchat(t)) return false;
-  return /\b(said|say|mention|mentioned|talked|talk|discussed|chat|group|earlier|before|already|last message|previous|anyone|somebody|someone|who asked|recap|summar(y|ise|ize)|have we|did we|did anyone|in this (group|chat)|on (this|the) group|what did)\b/i.test(
-    t
+  if (/\b(photo|image|picture|pic|pics|screenshot|this photo|this image|this picture)\b/i.test(t)) {
+    return false;
+  }
+  if (isDocSummaryRequest(t)) return false;
+  return (
+    /\b(recap|last message|previous message|in this (group|chat)|on (this|the) group|what has been discussed|what'?s been discussed|whats been discussed|since (the group|we) started|from the (start|beginning)|so far in (the|this) (chat|group))\b/i.test(
+      t
+    ) ||
+    /\b(said|mention(ed)?|talked|discussed|this chat|this group|have we|did we|did anyone|what did we|who asked|already answered|what have we been talking)\b/i.test(
+      t
+    )
   );
 }
 
@@ -68,7 +87,7 @@ function looksLikeQuestion(text) {
   if (t.includes('?')) return true;
   if (isAboutChat(t)) return true;
   if (
-    /^(who|what|whats|when|where|why|how|which|can|could|would|will|is|are|do|does|did|should|please|tell|explain|send|share|give|repeat|recap|remind|summarise|summarize|qui|que|quoi|quand|où|ou|pourquoi|comment|peux|peut|est-ce|quién|quien|qué|cuando|cuándo|dónde|donde|por qué|porque|cómo|como|quem|quando|onde|chi|cosa|dove|perché|perche)\b/i.test(
+    /^(who|what|whats|when|where|why|how|which|can|could|would|will|is|are|do|does|did|should|please|tell|explain|send|share|give|repeat|recap|remind|summarise|summarize|qui|que|quoi|quand|où|ou|pourquoi|comment|peux|peut|est-ce|quién|quien|qué|cuando|cuándo|dónde|donde|por qué|porque|cómo|como|quem|quando|onde|chi|cosa|dove|perché|perche|a o|o ka|ke kopa|naa)\b/i.test(
       t
     )
   ) {
@@ -78,6 +97,25 @@ function looksLikeQuestion(text) {
     return true;
   }
   return false;
+}
+
+function looksLikeSameQuestion(text) {
+  const t = String(text || '')
+    .toLowerCase()
+    .replace(/[.!,]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!t) return false;
+  if (
+    /^(same( one| here| question| doubt| thing)?|same$|me too|me 2|me2|\+1|also me|ditto|seconded|following this|this too|also wondering|anyone else|waiting for this|moi aussi|pareil|igual|yo también|yo tambien|eu também|eu tambem|anch'?io|le nna|nna le nna)$/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  return /^(i (was )?about to ask|i wanted to ask|i have the same|i was thinking the same|i also (want to )?know|same question|same here)\b/i.test(
+    t
+  );
 }
 
 function isFollowUp(text) {
@@ -126,20 +164,28 @@ function greetingAnswer(text) {
   return null;
 }
 
-function botHelpAnswer(text) {
-  const q = String(text || '').toLowerCase();
+function botHelpAnswer(text, lang) {
+  const q = String(text || '')
+    .toLowerCase()
+    .replace(/@\d+/g, ' ')
+    .replace(/@(askback|askbak)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!q) return null;
+  if (isDocSummaryRequest(q)) return null;
 
   const asksAboutTagging =
-    /\b(tag|mention|@)\b/.test(q) &&
-    /\b(bot|askbak|askback|you|do i have to|need to|have to)\b/.test(q);
+    /\b(do i (have to|need to)|must i|should i|how (do i|to)|when (do i|to)|have to)\b.{0,40}\b(tag|mention)\b/i.test(
+      q
+    ) || /\b(tag|mention)\b.{0,24}\b(you|the bot|askback|askbak)\b.{0,24}\b(to (get |ask )?|for (an? )?answer)\b/i.test(q);
   if (asksAboutTagging) {
-    return "No need to tag me. Ask in this chat and I'll use the knowledge files and messages already here. Tag me only if I don't have it — then I'll call an admin.";
+    return phrase('helpTagging', lang || 'en');
   }
 
-  const asksAdmins = /\b(who|which|list|name)\b/.test(q) && /\badmins?\b/.test(q);
+  const asksAdmins = /\b(who|which|list|name|qui|quién|quem|chi)\b/.test(q) && /\badmins?\b/.test(q);
   if (asksAdmins) {
     const admins = listAdmins();
+    if (lang && lang !== 'en') return null;
     if (!admins.length) {
       return 'No askBack admins are set yet. Add them on the Knowledge page.';
     }
@@ -154,9 +200,11 @@ function botHelpAnswer(text) {
 
 module.exports = {
   looksLikeQuestion,
+  looksLikeSameQuestion,
   isChitchat,
   isFollowUp,
   isAboutChat,
+  isDocSummaryRequest,
   botHelpAnswer,
   greetingAnswer,
 };

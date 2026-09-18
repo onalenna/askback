@@ -1,13 +1,14 @@
 const { unwrapMessageContent } = require('./voice');
-const { getContextInfo } = require('./mentions');
+const { getContextInfo, rememberSelfFromMessage, noteFromMeId } = require('./mentions');
 const { statements } = require('../db/queries');
 
-const MAX_LINES = 200;
+const MAX_LINES = 400;
 const MAX_TEXT = 800;
-const FETCH_COUNT = 100;
+const FETCH_COUNT = 80;
 const FETCH_WAIT_MS = 8000;
 const MIN_CONTEXT = 12;
 const FETCH_COOLDOWN_MS = 2 * 60 * 1000;
+const DEEP_PAGES = 3;
 
 /** chatJid -> { lines, fetchedAt, fetching, waiters, hydrated } */
 const chats = new Map();
@@ -92,6 +93,58 @@ function extractQuotedText(msg) {
   return extractText({ message: quoted }, { media: true });
 }
 
+function foldText(text) {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function rememberOutbound(chatJid, sent, text) {
+  const id = sent?.key?.id || (typeof sent === 'string' ? sent : '');
+  rememberSelfFromMessage({
+    key: {
+      fromMe: true,
+      remoteJid: sent?.key?.remoteJid || chatJid,
+      id,
+      participant: sent?.key?.participant || sent?.participant,
+      participantLid: sent?.key?.participantLid,
+      participantPn: sent?.key?.participantPn,
+    },
+    participant: sent?.participant,
+  });
+  if (!text) return id;
+  rememberMessage(chatJid, {
+    id: id || `askback-${Date.now()}`,
+    fromMe: true,
+    name: 'askBack',
+    text,
+    ts: Date.now() / 1000,
+    raw: sent?.message || null,
+  });
+  return id;
+}
+
+function quotedOurHistory(msg, chatJid) {
+  const ctx = getContextInfo(msg);
+  if (!ctx) return false;
+  const stanzaId = String(ctx.stanzaId || '').trim();
+  const lines = recentChatLines(chatJid);
+  if (stanzaId && lines.some((line) => line.fromMe && line.id === stanzaId)) return true;
+  const quoted = foldText(extractQuotedText(msg));
+  if (!quoted) return false;
+  return lines.some((line) => {
+    if (!line.fromMe) return false;
+    const mine = foldText(line.text);
+    if (!mine) return false;
+    if (mine === quoted) return true;
+    if (quoted.length >= 12 && (mine.startsWith(quoted.slice(0, 80)) || quoted.startsWith(mine.slice(0, 80)))) {
+      return true;
+    }
+    return false;
+  });
+}
+
 function senderName(msg) {
   if (msg?.pushName) return String(msg.pushName).slice(0, 40);
   const p =
@@ -102,6 +155,35 @@ function senderName(msg) {
     '';
   const user = String(p).split('@')[0];
   return user || '';
+}
+
+/** chatJid:msgId -> reply lines */
+const replyIndex = new Map();
+
+function rememberReply(chatJid, line) {
+  const quotedId = String(line?.quotedId || '').trim();
+  if (!chatJid || !quotedId) return;
+  const key = `${chatJid}:${quotedId}`;
+  const list = replyIndex.get(key) || [];
+  if (line.id && list.some((item) => item.id === line.id)) return;
+  list.push(line);
+  replyIndex.set(key, list);
+}
+
+function repliesToId(chatJid, msgId) {
+  const id = String(msgId || '').trim();
+  if (!id) return [];
+  const out = [];
+  const seen = new Set();
+  for (const jid of relatedJids(chatJid)) {
+    for (const line of replyIndex.get(`${jid}:${id}`) || []) {
+      const key = line.id || `${line.ts}:${line.text}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(line);
+    }
+  }
+  return out;
 }
 
 function bucketFor(chatJid) {
@@ -148,6 +230,7 @@ function rememberMessage(chatJid, line, persist = true) {
     name: String(line.name || '').slice(0, 40),
     text: clip(line.text),
     quoted: clip(line.quoted),
+    quotedId: String(line.quotedId || ''),
     ts: Number(line.ts || 0),
     raw: line.raw || null,
   };
@@ -156,10 +239,12 @@ function rememberMessage(chatJid, line, persist = true) {
   if (bucket.lines.length > MAX_LINES) {
     bucket.lines.splice(0, bucket.lines.length - MAX_LINES);
   }
+  rememberReply(chatJid, stored);
   if (persist) persistLine(chatJid, stored);
 }
 
 function rememberWaMessage(msg) {
+  if (msg?.key?.fromMe) rememberSelfFromMessage(msg);
   const chatJid = msg?.key?.remoteJid;
   const altJid = msg?.key?.remoteJidAlt;
   if (!shouldTrackChat(chatJid) && !shouldTrackChat(altJid)) return;
@@ -176,6 +261,7 @@ function rememberWaMessage(msg) {
     name: senderName(msg),
     text: text || quoted,
     quoted,
+    quotedId: getContextInfo(msg)?.stanzaId || '',
     ts: Number(msg.messageTimestamp || 0),
     raw: msg.message || null,
   };
@@ -201,10 +287,12 @@ function hydrateChat(chatJid) {
             name: row.sender_name,
             text: row.body,
             quoted: row.quoted,
+            quotedId: '',
             ts: row.ts,
           },
           false
         );
+        if (row.from_me) noteFromMeId(jid, row.msg_id);
       }
     } catch (err) {
       console.warn('[whatsapp] could not load saved messages:', err.message || err);
@@ -286,26 +374,47 @@ async function requestHistory(sock, msg) {
   await sock.fetchMessageHistory(FETCH_COUNT, msg.key, timestampMs(msg.messageTimestamp));
 }
 
-async function ensureChatHistory(sock, chatJid, msg, { wait = true } = {}) {
+function historyCursor(chatJid, msg, page) {
+  if (!page) return msg;
+  const oldest = recentChatLines(chatJid)[0];
+  if (!oldest?.id || !oldest.ts) return msg;
+  return {
+    key: {
+      remoteJid: chatJid,
+      id: oldest.id,
+      fromMe: !!oldest.fromMe,
+      participant: undefined,
+    },
+    messageTimestamp: oldest.ts,
+  };
+}
+
+async function ensureChatHistory(sock, chatJid, msg, { wait = true, deep = false } = {}) {
   hydrateChat(chatJid);
   const bucket = bucketFor(chatJid);
   const have = recentChatLines(chatJid, msg?.key?.id).length;
   const fresh = bucket.fetchedAt && Date.now() - bucket.fetchedAt < FETCH_COOLDOWN_MS;
-  if (have >= MIN_CONTEXT) return;
-  if (fresh) return;
+  const enough = deep ? have >= 80 : have >= MIN_CONTEXT;
+  if (enough && (!deep || fresh)) return;
+  if (fresh && !deep) return;
   if (!sock?.fetchMessageHistory || !msg?.key) {
     bucket.fetchedAt = Date.now();
     return;
   }
 
   const run = async () => {
-    const pending = waitForHistory(bucket);
-    try {
-      await requestHistory(sock, msg);
-    } catch (err) {
-      console.warn('[whatsapp] could not fetch existing messages:', err.message || err);
+    const pages = deep ? DEEP_PAGES : 1;
+    for (let i = 0; i < pages; i += 1) {
+      const pending = waitForHistory(bucket);
+      const cursor = historyCursor(chatJid, msg, i);
+      try {
+        await requestHistory(sock, cursor);
+      } catch (err) {
+        console.warn('[whatsapp] could not fetch existing messages:', err.message || err);
+        break;
+      }
+      await pending;
     }
-    await pending;
     bucket.fetchedAt = Date.now();
     console.log(
       `[whatsapp] loaded ${recentChatLines(chatJid).length} existing message(s) from ${chatJid}`
@@ -343,6 +452,9 @@ module.exports = {
   extractQuotedText,
   rememberMessage,
   rememberWaMessage,
+  rememberOutbound,
+  quotedOurHistory,
+  repliesToId,
   ingestHistoryMessages,
   recentChatLines,
   formatChatContext,

@@ -5,7 +5,11 @@ const multer = require('multer');
 const { statements } = require('../db/queries');
 const db = require('../db');
 const { ingestFile, replaceFile, unlinkQuiet } = require('../processor/ingest');
+const { openChatExport } = require('../processor/text');
+const { isKnowledgeOnly } = require('../whatsapp/share');
+const { resolveUploadType } = require('../processor/filetype');
 const { getBotMode } = require('../whatsapp/answer');
+const { getLemonfoxVoice, listLemonfoxVoices, setLemonfoxVoice } = require('../ai/voices');
 const { getSocket } = require('../whatsapp/client');
 const { listGroups, setGroupAllowed, sendGroupText } = require('../whatsapp/groups');
 const { listAdmins, addAdmin, removeAdmin } = require('../whatsapp/admins');
@@ -15,17 +19,8 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const upload = multer({
   dest: UPLOAD_DIR,
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 80 * 1024 * 1024 },
 });
-
-const AUDIO_EXTS = ['.mp3', '.wav', '.m4a', '.ogg', '.webm', '.mp4'];
-
-function detectType(filename) {
-  const ext = path.extname(filename || '').toLowerCase();
-  if (ext === '.pdf') return 'pdf';
-  if (AUDIO_EXTS.includes(ext)) return 'audio';
-  return null;
-}
 
 function sanitizeDisplayName(name) {
   const base = path.basename(String(name || '').trim());
@@ -45,7 +40,8 @@ function publicDoc(doc) {
   const { file_path, ...rest } = doc;
   return {
     ...rest,
-    sharable: !!(file_path && fs.existsSync(file_path)),
+    sharable: !isKnowledgeOnly(doc) && !!(file_path && fs.existsSync(file_path)),
+    downloadable: !!(file_path && fs.existsSync(file_path)),
   };
 }
 
@@ -61,6 +57,8 @@ function liveStats() {
       .prepare(`SELECT source, COUNT(*) AS c FROM qa_history GROUP BY source`)
       .all(),
     botMode: getBotMode(),
+    lemonfoxVoice: getLemonfoxVoice(),
+    lemonfoxVoices: listLemonfoxVoices(),
   };
 }
 
@@ -84,6 +82,15 @@ function createAdminRouter() {
     statements.setSetting.run('bot_mode', mode);
     process.env.BOT_MODE = mode;
     res.json({ botMode: mode });
+  });
+
+  router.post('/api/tts-voice', express.json(), (req, res) => {
+    try {
+      const voice = setLemonfoxVoice(req.body?.voice);
+      res.json({ voice, voices: listLemonfoxVoices() });
+    } catch (err) {
+      res.status(400).json({ error: err.message || 'Could not save voice' });
+    }
   });
 
   router.get('/api/groups', async (_req, res) => {
@@ -110,7 +117,9 @@ function createAdminRouter() {
 
   router.post('/api/send', express.json(), async (req, res) => {
     try {
-      const result = await sendGroupText(getSocket(), req.body?.jid, req.body?.text);
+      const result = await sendGroupText(getSocket(), req.body?.jid, req.body?.text, {
+        asVoice: Boolean(req.body?.asVoice),
+      });
       res.json(result);
     } catch (err) {
       const msg = err.message || 'Could not send message';
@@ -144,27 +153,43 @@ function createAdminRouter() {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const original = sanitizeDisplayName(req.file.originalname || req.file.filename);
-    const type = detectType(original);
+    const { original, type } = resolveUploadType(req.file);
+    const displayName = sanitizeDisplayName(original) || original || 'chat.txt';
     if (!type) {
+      console.warn('[admin] unsupported upload', {
+        original: req.file.originalname,
+        mime: req.file.mimetype,
+      });
       unlinkQuiet(req.file.path);
-      return res.status(400).json({ error: 'Unsupported file type. Upload PDF or audio.' });
+      return res.status(400).json({ error: 'Unsupported file type. Upload a WhatsApp .txt (or zip) export, PDF, or audio.' });
     }
 
     const title = sanitizeTitle(req.body?.title);
     if (!title) {
       unlinkQuiet(req.file.path);
-      return res.status(400).json({ error: 'Give the file a short name, like Meeting notes or Programme.' });
+      return res.status(400).json({ error: 'Give the file a short name, like Meeting notes or Group chat.' });
     }
 
+    let ingestPath = req.file.path;
+    let ingestName = displayName;
+    let ingestType = type;
+    let cleanup = '';
     try {
-      const result = await ingestFile(req.file.path, original, type, title);
+      if (type === 'zip') {
+        const opened = openChatExport(req.file.path, displayName);
+        ingestPath = opened.path;
+        ingestName = path.basename(opened.path) || '_chat.txt';
+        ingestType = 'text';
+        cleanup = opened.cleanup;
+      }
+      const result = await ingestFile(ingestPath, ingestName, ingestType, title);
       res.json(result);
     } catch (err) {
       console.error('[admin] ingest failed:', err.message || err);
       res.status(500).json({ error: err.message || 'Ingest failed' });
     } finally {
       unlinkQuiet(req.file.path);
+      if (cleanup) fs.rmSync(cleanup, { recursive: true, force: true });
     }
   });
 
@@ -195,21 +220,37 @@ function createAdminRouter() {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const original = sanitizeDisplayName(req.file.originalname || req.file.filename);
-    const type = detectType(original);
+    const { original, type } = resolveUploadType(req.file);
+    const displayName = sanitizeDisplayName(original) || original || 'chat.txt';
     if (!type) {
+      console.warn('[admin] unsupported replace', {
+        original: req.file.originalname,
+        mime: req.file.mimetype,
+      });
       unlinkQuiet(req.file.path);
-      return res.status(400).json({ error: 'Unsupported file type. Upload PDF or audio.' });
+      return res.status(400).json({ error: 'Unsupported file type. Upload a WhatsApp .txt (or zip) export, PDF, or audio.' });
     }
 
+    let ingestPath = req.file.path;
+    let ingestName = displayName;
+    let ingestType = type;
+    let cleanup = '';
     try {
-      const result = await replaceFile(id, req.file.path, original, type);
+      if (type === 'zip') {
+        const opened = openChatExport(req.file.path, displayName);
+        ingestPath = opened.path;
+        ingestName = path.basename(opened.path) || '_chat.txt';
+        ingestType = 'text';
+        cleanup = opened.cleanup;
+      }
+      const result = await replaceFile(id, ingestPath, ingestName, ingestType);
       res.json(result);
     } catch (err) {
       console.error('[admin] replace failed:', err.message || err);
       res.status(500).json({ error: err.message || 'Replace failed' });
     } finally {
       unlinkQuiet(req.file.path);
+      if (cleanup) fs.rmSync(cleanup, { recursive: true, force: true });
     }
   });
 

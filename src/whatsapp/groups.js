@@ -1,5 +1,6 @@
 const { statements } = require('../db/queries');
-const { rememberMessage } = require('./history');
+const { rememberOutbound } = require('./history');
+const { rememberGroupSelf } = require('./mentions');
 
 const SETTING_KEY = 'allowed_groups';
 const META_TTL_MS = 10 * 60 * 1000;
@@ -55,10 +56,14 @@ function isBroadcastGroup(meta) {
 
 async function getGroupMeta(sock, jid) {
   const hit = metaCache.get(jid);
-  if (hit && Date.now() - hit.at < META_TTL_MS) return hit.meta;
+  if (hit && Date.now() - hit.at < META_TTL_MS) {
+    rememberGroupSelf(sock, hit.meta);
+    return hit.meta;
+  }
   if (!sock?.groupMetadata) return null;
   const meta = await sock.groupMetadata(jid);
   metaCache.set(jid, { meta, at: Date.now() });
+  rememberGroupSelf(sock, meta);
   return meta;
 }
 
@@ -136,7 +141,7 @@ async function listGroups(sock) {
   });
 }
 
-async function sendGroupText(sock, jid, text) {
+async function sendGroupText(sock, jid, text, { asVoice = false } = {}) {
   if (!sock?.sendMessage) {
     throw new Error('WhatsApp is not connected yet. Wait for the QR to be scanned.');
   }
@@ -153,15 +158,26 @@ async function sendGroupText(sock, jid, text) {
     throw new Error('Cannot send to a community hub. Pick a specific group.');
   }
 
-  await sock.sendMessage(id, { text: body });
-  rememberMessage(id, {
-    id: `askback-send-${Date.now()}`,
-    fromMe: true,
-    name: 'askBack',
-    text: body,
-    ts: Date.now() / 1000,
-  });
-  return { ok: true, jid: id, name: meta?.subject || nameFromHistory(id) || id };
+  let sent = null;
+  if (asVoice) {
+    const { ttsConfigured } = require('../ai/tts');
+    if (!ttsConfigured()) {
+      throw new Error('Voice notes need a Lemonfox API key in .env.');
+    }
+    const { sendVoiceReply } = require('./voice');
+    sent = await sendVoiceReply(sock, id, body, null, [], '');
+    if (!sent) throw new Error('Could not send the voice note. Try text, or check Lemonfox.');
+  } else {
+    sent = await sock.sendMessage(id, { text: body });
+  }
+
+  rememberOutbound(id, sent, body);
+  return {
+    ok: true,
+    jid: id,
+    name: meta?.subject || nameFromHistory(id) || id,
+    asVoice: Boolean(asVoice),
+  };
 }
 
 module.exports = {

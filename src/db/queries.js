@@ -53,6 +53,9 @@ const statements = {
   deleteChunksByDoc: db.prepare(`DELETE FROM chunks WHERE document_id = ?`),
   deleteQAByDoc: db.prepare(`DELETE FROM qa_history WHERE document_id = ?`),
   allChunks: db.prepare(`SELECT id, document_id, content, embedding FROM chunks`),
+  chunksByDoc: db.prepare(
+    `SELECT id, document_id, content FROM chunks WHERE document_id = ? ORDER BY chunk_index ASC LIMIT ?`
+  ),
   chunkById: db.prepare(`SELECT * FROM chunks WHERE id = ?`),
   deleteChunk: db.prepare(`DELETE FROM chunks WHERE id = ?`),
 

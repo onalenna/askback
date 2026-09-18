@@ -6,11 +6,12 @@ const { promisify } = require('util');
 const { toFile } = require('openai');
 const { transcribeAudioDetailed } = require('../processor/audio');
 const { looksLikeHeardSpeech, interpretVoiceTranscript } = require('../ai/understand');
+const { normalizeLangCode } = require('../ai/language');
+const { downloadMediaBuffer } = require('./download');
 
 const execFileAsync = promisify(execFile);
 const MAX_BYTES = 25 * 1024 * 1024;
 const MAX_SECONDS = 180;
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function unwrapMessageContent(message) {
   let content = message;
@@ -21,7 +22,9 @@ function unwrapMessageContent(message) {
       content.viewOnceMessageV2?.message ||
       content.viewOnceMessageV2Extension?.message ||
       content.documentWithCaptionMessage?.message ||
-      content.editedMessage?.message;
+      content.editedMessage?.message ||
+      content.deviceSentMessage?.message ||
+      content.futureProofMessage?.message;
     if (!inner) break;
     content = inner;
   }
@@ -87,68 +90,23 @@ async function transcodeForWhisper(buffer, ext) {
   }
 }
 
-async function downloadAudioBuffer(sock, msg) {
-  const { downloadMediaMessage } = await import('baileys');
-  const logger = sock.logger || {
-    info() {},
-    warn() {},
-    error() {},
-    debug() {},
-    child() {
-      return this;
-    },
-  };
-  let lastErr = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      const buffer = await downloadMediaMessage(
-        msg,
-        'buffer',
-        {},
-        {
-          logger,
-          reuploadRequest: sock.updateMediaMessage?.bind(sock),
-        }
-      );
-      if (buffer?.length) return buffer;
-    } catch (err) {
-      lastErr = err;
-      console.warn(`[whatsapp] voice download try ${attempt} failed:`, err.message || err);
-    }
-    if (sock.updateMediaMessage) {
-      try {
-        await sock.updateMediaMessage(msg);
-      } catch (err) {
-        console.warn('[whatsapp] media refresh failed:', err.message || err);
-      }
-    }
-    await delay(1200);
-  }
-  if (lastErr) throw lastErr;
-  return null;
-}
-
-/**
- * Download a WhatsApp voice note, transcribe it, then check that the words
- * actually make sense. Returns '' when the audio was not understood.
- */
 async function transcribeVoiceNote(sock, msg, { chatContext = '', quoted = '' } = {}) {
   const audio = getAudioMessage(msg);
-  if (!audio) return '';
+  if (!audio) return { text: '', language: '' };
 
   if (audio.seconds && audio.seconds > MAX_SECONDS) {
     console.log(`[whatsapp] skipping voice note (${audio.seconds}s > ${MAX_SECONDS}s)`);
-    return '';
+    return { text: '', language: '' };
   }
 
-  const buffer = await downloadAudioBuffer(sock, msg);
+  const buffer = await downloadMediaBuffer(sock, msg, { label: 'voice' });
   if (!buffer?.length) {
     console.warn('[whatsapp] voice note had no audio bytes');
-    return '';
+    return { text: '', language: '' };
   }
   if (buffer.length > MAX_BYTES) {
     console.log('[whatsapp] skipping voice note — file too large for Whisper');
-    return '';
+    return { text: '', language: '' };
   }
 
   const ext = audioExtension(audio.mimetype);
@@ -156,29 +114,32 @@ async function transcribeVoiceNote(sock, msg, { chatContext = '', quoted = '' } 
   const file = await toFile(whisperBytes, 'voice-note.wav');
   const detailed = await transcribeAudioDetailed(file);
   const raw = detailed.text;
-  console.log(`[whatsapp] voice note transcript: ${(raw || '').slice(0, 120)}`);
-  if (!looksLikeHeardSpeech(detailed) && !raw) return '';
+  const spokenLang = normalizeLangCode(detailed.language);
+  console.log(
+    `[whatsapp] voice note transcript (${spokenLang || 'unknown'}): ${(raw || '').slice(0, 120)}`
+  );
+  if (!looksLikeHeardSpeech(detailed) && !raw) return { text: '', language: spokenLang };
 
   let understood = '';
   try {
-    understood = await interpretVoiceTranscript(raw, { chatContext, quoted });
+    understood = await interpretVoiceTranscript(raw, { chatContext, quoted, language: spokenLang });
   } catch (err) {
     console.warn('[whatsapp] voice interpret failed, using transcript:', err.message || err);
   }
   if (!understood && raw) understood = raw;
-  if (!understood) return '';
+  if (!understood) return { text: '', language: spokenLang };
 
   if (understood.toLowerCase() !== raw.toLowerCase()) {
     console.log(`[whatsapp] voice note understood as: ${understood.slice(0, 80)}`);
   }
-  return understood;
+  return { text: understood, language: spokenLang };
 }
 
 /**
  * Generate a Lemonfox audio file and send it as a WhatsApp voice note.
  * Returns false if synthesis or send fails.
  */
-async function sendVoiceReply(sock, chatJid, text, quoted, mentions) {
+async function sendVoiceReply(sock, chatJid, text, quoted, mentions, language) {
   const { ttsConfigured, synthesizeSpeechFile } = require('../ai/tts');
   if (!ttsConfigured()) {
     console.warn('[whatsapp] Lemonfox TTS is not configured — set LEMONFOX_API_KEY');
@@ -193,7 +154,7 @@ async function sendVoiceReply(sock, chatJid, text, quoted, mentions) {
 
   let file;
   try {
-    file = await synthesizeSpeechFile(text);
+    file = await synthesizeSpeechFile(text, { language });
   } catch (err) {
     console.error('[whatsapp] lemonfox tts failed:', err.message || err);
     return false;
@@ -211,13 +172,13 @@ async function sendVoiceReply(sock, chatJid, text, quoted, mentions) {
   if (mentions?.length) payload.mentions = mentions;
 
   try {
-    await sock.sendMessage(chatJid, payload, quoted ? { quoted } : undefined);
+    const sent = await sock.sendMessage(chatJid, payload, quoted ? { quoted } : undefined);
     console.log('[whatsapp] sent lemonfox voice note (ogg opus)');
-    return true;
+    return sent || true;
   } catch (err) {
     console.warn('[whatsapp] voice note send failed, retrying as audio file:', err.message || err);
     try {
-      await sock.sendMessage(
+      const sent = await sock.sendMessage(
         chatJid,
         {
           audio: file.buffer,
@@ -229,7 +190,7 @@ async function sendVoiceReply(sock, chatJid, text, quoted, mentions) {
         quoted ? { quoted } : undefined
       );
       console.log('[whatsapp] sent lemonfox audio file (ogg opus)');
-      return true;
+      return sent || true;
     } catch (err2) {
       console.error('[whatsapp] could not send lemonfox audio:', err2.message || err2);
       return false;

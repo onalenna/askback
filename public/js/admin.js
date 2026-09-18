@@ -22,6 +22,7 @@ function renderStats(s) {
     ['Documents', s.totalDocs],
     ['Chunks', s.totalChunks],
     ['Bot', botOn ? 'On' : 'Off'],
+    ['Voice', prettyVoice(s)],
   ]
     .map(
       ([label, value]) =>
@@ -30,6 +31,41 @@ function renderStats(s) {
     .join('');
 
   setBotToggle(botOn);
+}
+
+function prettyVoice(s) {
+  const id = String(s?.lemonfoxVoice || '').trim();
+  const match = (s?.lemonfoxVoices || []).find((v) => v.id === id);
+  return match?.label || id || 'Sarah';
+}
+
+function fillVoiceSelect(s) {
+  const select = document.getElementById('tts-voice');
+  if (!select) return;
+  const voices = s?.lemonfoxVoices || [];
+  const current = String(s?.lemonfoxVoice || '').trim();
+  const groups = [];
+  for (const voice of voices) {
+    let group = groups.find((g) => g.label === voice.group);
+    if (!group) {
+      group = { label: voice.group, options: [] };
+      groups.push(group);
+    }
+    group.options.push(voice);
+  }
+  select.innerHTML = groups
+    .map(
+      (group) =>
+        `<optgroup label="${escapeHtml(group.label)}">${group.options
+          .map(
+            (voice) =>
+              `<option value="${escapeHtml(voice.id)}"${voice.id === current ? ' selected' : ''}>${escapeHtml(
+                voice.label
+              )}</option>`
+          )
+          .join('')}</optgroup>`
+    )
+    .join('');
 }
 
 function setBotToggle(on) {
@@ -41,7 +77,7 @@ function setBotToggle(on) {
 function renderDocs(docs) {
   const el = document.getElementById('docs');
   if (!docs.length) {
-    el.innerHTML = '<li class="meta">No files yet. Add a PDF or audio recording above.</li>';
+    el.innerHTML = '<li class="meta">No files yet. Add a WhatsApp .txt export, PDF, or audio recording above.</li>';
     return;
   }
   el.innerHTML = docs
@@ -53,13 +89,13 @@ function renderDocs(docs) {
           ${escapeHtml(d.filename)}
           · ${escapeHtml(d.type)} · ${escapeHtml(d.status)}
           ${d.chunk_count ? ` · ${d.chunk_count} chunks` : ''}
-          ${d.sharable ? ' · sharable in WhatsApp' : ' · re-upload to share the original'}
+          ${d.sharable ? ' · can send in WhatsApp if asked' : d.downloadable ? ' · used for answers only' : ' · re-upload to keep a copy'}
           ${d.error ? ` · <span class="error">${escapeHtml(d.error)}</span>` : ''}
           · ${escapeHtml(d.created_at)}
         </p>
         <div class="file-actions">
           <button type="button" class="ghost" data-action="edit">Edit</button>
-          ${d.sharable ? '<button type="button" class="ghost" data-action="download">Download</button>' : ''}
+          ${d.downloadable ? '<button type="button" class="ghost" data-action="download">Download</button>' : ''}
           <button type="button" class="danger" data-action="delete">Delete</button>
         </div>
       </li>`
@@ -193,6 +229,7 @@ async function refresh() {
     api('/api/admins'),
   ]);
   renderStats(stats);
+  fillVoiceSelect(stats);
   renderDocs(docs);
   renderQa(qa);
   renderAdmins(admins);
@@ -242,6 +279,24 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
   }
 });
 
+document.getElementById('tts-voice')?.addEventListener('change', async (e) => {
+  const status = document.getElementById('send-status');
+  const select = e.currentTarget;
+  try {
+    await api('/api/tts-voice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voice: select.value }),
+    });
+    const label = select.selectedOptions[0]?.text || select.value;
+    if (status) status.textContent = `Voice set to ${label}`;
+    const stats = await api('/api/stats');
+    renderStats(stats);
+  } catch (err) {
+    if (status) status.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
+  }
+});
+
 document.getElementById('send-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const status = document.getElementById('send-status');
@@ -249,16 +304,19 @@ document.getElementById('send-form').addEventListener('submit', async (e) => {
   const text = document.getElementById('send-text');
   const btn = e.currentTarget.querySelector('button[type="submit"]');
   if (!group.value || !text.value.trim()) return;
+  const asVoice = e.currentTarget.querySelector('input[name="send-as"]:checked')?.value === 'voice';
   btn.disabled = true;
-  status.textContent = 'Sending…';
+  status.textContent = asVoice ? 'Sending voice note…' : 'Sending…';
   try {
     const result = await api('/api/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jid: group.value, text: text.value }),
+      body: JSON.stringify({ jid: group.value, text: text.value, asVoice }),
     });
     text.value = '';
-    status.textContent = `Sent to ${result.name || 'the group'}`;
+    status.textContent = asVoice
+      ? `Sent voice note to ${result.name || 'the group'}`
+      : `Sent to ${result.name || 'the group'}`;
   } catch (err) {
     status.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
   } finally {

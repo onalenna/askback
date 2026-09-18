@@ -3,9 +3,9 @@ const { generateAnswer } = require('../ai/generator');
 const { searchAll } = require('../ai/search');
 const { statements, setQAEmbedding } = require('../db/queries');
 const { isShareRequest, pickFilesToShare } = require('./share');
-const { botHelpAnswer, greetingAnswer, isChitchat, isAboutChat } = require('./intent');
+const { botHelpAnswer, greetingAnswer, isChitchat, isAboutChat, isDocSummaryRequest } = require('./intent');
 const { formatChatContext } = require('./history');
-const { detectLanguage } = require('../ai/language');
+const { userAskLanguage } = require('../ai/language');
 
 function getBotMode() {
   try {
@@ -35,6 +35,10 @@ function fileCaption(files, lang = 'en') {
     if (files.length === 1) return `Ecco ${files[0].fileName}`;
     return `Ecco i file: ${files.map((f) => f.fileName).join(', ')}`;
   }
+  if (lang === 'tn') {
+    if (files.length === 1) return `Fa ke ${files[0].fileName}`;
+    return `Tse ke difaele: ${files.map((f) => f.fileName).join(', ')}`;
+  }
   if (files.length === 1) return `Here's ${files[0].fileName}`;
   return `Here are the files: ${files.map((f) => f.fileName).join(', ')}`;
 }
@@ -47,6 +51,18 @@ function knowledgeCount() {
   }
 }
 
+function recapFallback(chatHistory) {
+  const lines = chatHistory || [];
+  if (!lines.length) {
+    return "I don't have this group's older messages loaded yet, so I can't recap from the start. Ask again after more of the chat comes through, or tell me a specific topic.";
+  }
+  const bits = lines.slice(-18).map((line) => {
+    const who = line.fromMe ? 'askBack' : line.name || 'Someone';
+    return `• ${who}: ${String(line.text || '').slice(0, 160)}`;
+  });
+  return `I don't have every message from when this group started, but here's what I can see recently:\n${bits.join('\n')}`;
+}
+
 function searchBlob(question, quoted, chatHistory) {
   const recent = (chatHistory || [])
     .slice(-12)
@@ -55,73 +71,135 @@ function searchBlob(question, quoted, chatHistory) {
   return [question, quoted, ...recent].filter(Boolean).join('\n').slice(0, 2000);
 }
 
+function knowledgeForSummary(text) {
+  const docs = statements.allDocs.all().filter((doc) => Number(doc.chunk_count || 0) > 0);
+  if (!docs.length) return [];
+  const q = String(text || '').toLowerCase();
+  const named = docs.find((doc) => {
+    const title = String(doc.title || '').trim().toLowerCase();
+    const filename = String(doc.filename || '').toLowerCase();
+    const stem = filename.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ');
+    return (
+      (title.length >= 3 && q.includes(title)) ||
+      (filename.length >= 3 && q.includes(filename)) ||
+      (stem.length >= 3 && q.includes(stem))
+    );
+  });
+  const pick = named || docs[0];
+  return statements.chunksByDoc.all(pick.id, 12).map((chunk) => ({
+    document_id: chunk.document_id,
+    content: chunk.content,
+    score: 1,
+  }));
+}
+
 /**
  * Resolve a reply for an inbound question from a private chat or a group.
  * Returns null when the bot should stay silent.
  */
 async function answerQuestion(
   rawText,
-  { chatJid, chatName, isGroup = false, chatHistory = [], quoted = '', fromVoice = false } = {}
+  {
+    chatJid,
+    chatName,
+    isGroup = false,
+    chatHistory = [],
+    quoted = '',
+    fromVoice = false,
+    fromMedia = false,
+    caption = '',
+    language = '',
+  } = {}
 ) {
   if (getBotMode() === 'off') return null;
 
-  let text = (rawText || '').replace(/\s+/g, ' ').trim();
+  let text = String(rawText || '').trim();
+  if (!fromMedia) text = text.replace(/\s+/g, ' ').trim();
   if (!text) return null;
 
+  const lang = userAskLanguage(text, {
+    caption: fromMedia ? caption : '',
+    hinted: language,
+  }) || (fromMedia ? 'en' : '');
+
   const greet = greetingAnswer(text);
-  if (greet && (!isGroup || fromVoice)) return { text: greet, source: 'help', files: [] };
+  if (greet && (!isGroup || fromVoice) && !fromMedia) {
+    const englishGreet = /I'm askBack/.test(greet);
+    if (!englishGreet || !lang || lang === 'en') {
+      return { text: greet, source: 'help', files: [], language: lang || 'en' };
+    }
+  }
 
-  if (isChitchat(text) && !quoted && !isAboutChat(text) && !fromVoice) return null;
+  if (isChitchat(text) && !isAboutChat(text) && !fromVoice && !fromMedia) return null;
 
-  const help = botHelpAnswer(text);
-  if (help) return { text: help, source: 'help', files: [] };
+  const help = botHelpAnswer(text, lang);
+  if (help) return { text: help, source: 'help', files: [], language: lang };
 
-  const maxLen = parseInt(process.env.MAX_QUESTION_LENGTH || '2000', 10);
+  const baseMax = parseInt(process.env.MAX_QUESTION_LENGTH || '2000', 10);
+  const maxLen = fromMedia ? Math.max(baseMax, 8000) : baseMax;
   if (text.length > maxLen) text = text.slice(0, maxLen);
-
-  const lang = detectLanguage(text);
-  const chatContext = formatChatContext(chatHistory);
+  const aboutChat = fromMedia ? false : isAboutChat(text);
+  const chatContext = fromMedia
+    ? ''
+    : formatChatContext((chatHistory || []).slice(aboutChat ? -120 : -40));
   const hasChat = Boolean(chatContext || quoted);
-  const hasDocs = knowledgeCount() > 0;
+  const hasDocs = !fromMedia && knowledgeCount() > 0;
 
   const wantsShare = isShareRequest(text);
+  const wantsDocSummary = isDocSummaryRequest(text);
   let embedding = null;
   let repeated = [];
   let knowledge = [];
-  if (hasDocs) {
+  if (wantsDocSummary && hasDocs) {
+    knowledge = knowledgeForSummary(text);
+    if (!knowledge.length) {
+      return {
+        text: 'I do not have a document loaded to summarize yet. Add one on Knowledge, then ask again.',
+        source: 'help',
+        files: [],
+        language: lang || 'en',
+      };
+    }
+  } else if (hasDocs) {
     embedding = await getEmbedding(searchBlob(text, quoted, chatHistory));
     ({ repeated, knowledge } = searchAll(embedding, { loose: !isGroup || hasChat }));
   }
-  const files = pickFilesToShare(text, { knowledge, repeated, wantsShare });
+  const files = wantsShare ? pickFilesToShare(text, { knowledge, repeated, wantsShare: true }) : [];
 
   if (wantsShare && files.length) {
     return {
       text: fileCaption(files, lang),
       source: 'share',
       files,
+      language: lang,
     };
   }
 
-  if (repeated.length && !hasChat && lang === 'en') {
+  if (repeated.length && !hasChat && !fromMedia && lang === 'en') {
     const best = repeated[0];
     return {
       text: best.answer,
       source: 'repeat',
       score: best.score,
-      files,
+      files: [],
+      language: lang,
     };
   }
 
+  console.log(`[whatsapp] answering in ${lang || 'the question language'}${fromMedia ? ' (from media)' : wantsDocSummary ? ' (doc summary)' : ''}`);
   const generated = (
     await generateAnswer(text, knowledge, {
-      chatContext,
+      chatContext: wantsDocSummary ? '' : chatContext,
       quoted,
-      aboutChat: isAboutChat(text),
+      aboutChat: wantsDocSummary ? false : aboutChat,
+      fromMedia,
+      summarizeDoc: wantsDocSummary,
+      language: lang,
     })
   ).trim();
   if (!generated || generated.includes('BOT_NO_ANSWER')) {
-    if (files.length) {
-      return { text: fileCaption(files, lang), source: 'share', files };
+    if (aboutChat) {
+      return { text: recapFallback(chatHistory), source: 'generated', files: [], language: lang || 'en' };
     }
     console.log('[whatsapp] did not understand — staying silent');
     return null;
@@ -142,7 +220,7 @@ async function answerQuestion(
     setQAEmbedding(id, embedding);
   }
 
-  return { text: generated, source: 'generated', files };
+  return { text: generated, source: 'generated', files: [], language: lang };
 }
 
 module.exports = { answerQuestion, getBotMode };

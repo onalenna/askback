@@ -89,4 +89,7 @@ module.exports = function createSchema(db) {
   db.prepare(
     `INSERT OR IGNORE INTO settings (key, value) VALUES ('admin_users', '[]')`
   ).run();
+  db.prepare(
+    `INSERT OR IGNORE INTO settings (key, value) VALUES ('lemonfox_voice', ?)`
+  ).run(String(process.env.LEMONFOX_VOICE || 'sarah').trim().toLowerCase() || 'sarah');
 };

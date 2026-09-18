@@ -4,7 +4,8 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 
 const execFileAsync = promisify(execFile);
-const { detectLanguage, lemonfoxLanguage, lemonfoxVoice } = require('./language');
+const { detectLanguage, lemonfoxLanguage, resolveReplyLanguage } = require('./language');
+const { getLemonfoxVoice, voiceLocale } = require('./voices');
 const LEMONFOX_URL = 'https://api.lemonfox.ai/v1/audio/speech';
 const MAX_CHARS = 4000;
 const TTS_DIR = path.join(__dirname, '..', '..', 'uploads', 'tts');
@@ -67,14 +68,15 @@ function pruneOldFiles() {
   }
 }
 
-async function synthesizeSpeech(text) {
+async function synthesizeSpeech(text, { language: hinted } = {}) {
   const input = speakable(text);
   const apiKey = lemonfoxKey();
   if (!apiKey || !input) return null;
 
-  const langCode = detectLanguage(input);
-  const voice = lemonfoxVoice(langCode);
-  const language = lemonfoxLanguage(langCode);
+  const langCode = resolveReplyLanguage(input, hinted) || detectLanguage(input) || 'en';
+  const voice = getLemonfoxVoice();
+  const mappedLang = lemonfoxLanguage(langCode);
+  const language = mappedLang && mappedLang !== 'en-us' ? mappedLang : voiceLocale(voice);
   const responseFormat = SOURCE_FORMAT === 'ogg' ? 'ogg' : SOURCE_FORMAT === 'opus' ? 'opus' : 'mp3';
 
   const body = {
@@ -83,6 +85,7 @@ async function synthesizeSpeech(text) {
     response_format: responseFormat,
   };
   if (language) body.language = language;
+  console.log(`[whatsapp] lemonfox tts voice=${voice} language=${language || 'default'}`);
 
   const response = await fetch(LEMONFOX_URL, {
     method: 'POST',
@@ -136,8 +139,8 @@ async function convertToOggOpus(inputPath, outputPath) {
   return out;
 }
 
-async function synthesizeSpeechFile(text) {
-  const buffer = await synthesizeSpeech(text);
+async function synthesizeSpeechFile(text, opts = {}) {
+  const buffer = await synthesizeSpeech(text, opts);
   if (!buffer) return null;
 
   fs.mkdirSync(TTS_DIR, { recursive: true });

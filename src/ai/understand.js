@@ -1,4 +1,5 @@
 const { openai } = require('./embeddings');
+const { languageName } = require('./language');
 
 const MODEL = 'gpt-4o';
 const HALLUCINATIONS = [
@@ -31,16 +32,20 @@ function looksLikeHeardSpeech(detailed) {
   return true;
 }
 
-async function interpretVoiceTranscript(transcript, { chatContext = '', quoted = '' } = {}) {
+async function interpretVoiceTranscript(transcript, { chatContext = '', quoted = '', language = '' } = {}) {
   const heard = String(transcript || '').replace(/\s+/g, ' ').trim();
   if (!heard) return '';
+
+  const langLine = language
+    ? `The speech was detected as ${languageName(language)}. Keep the request in ${languageName(language)}.`
+    : 'Keep the request in the same language the speaker used.';
 
   const parts = [
     'This is a WhatsApp voice note, transcribed automatically.',
     'Write the speaker\'s request as a clear question or instruction in the same language they used.',
     'Fix obvious transcription mistakes using the chat if that helps.',
+    langLine,
     'Do not translate into English unless they spoke English.',
-    'Keep their words in the same language.',
     'If the transcript is real speech, rewrite it clearly. If it is empty or only noise, reply exactly BOT_NO_ANSWER.',
     'Do not answer the request. Do not apologise.',
     '',
@@ -60,7 +65,7 @@ async function interpretVoiceTranscript(transcript, { chatContext = '', quoted =
       {
         role: 'system',
         content:
-          'You check that a voice-note transcript was understood. Output only the cleaned request in the speaker\'s language, or BOT_NO_ANSWER.',
+          'You check that a voice-note transcript was understood. Output only the cleaned request in the speaker\'s language, never a translation, or BOT_NO_ANSWER.',
       },
       { role: 'user', content: parts.join('\n') },
     ],

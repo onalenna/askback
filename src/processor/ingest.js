@@ -4,6 +4,7 @@ const { statements } = require('../db/queries');
 const { getEmbeddingsBatch } = require('../ai/embeddings');
 const { processPdf } = require('./pdf');
 const { processAudio } = require('./audio');
+const { processText } = require('./text');
 
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
 
@@ -11,6 +12,8 @@ function mimeFor(filename, type) {
   const ext = path.extname(filename || '').toLowerCase();
   const map = {
     '.pdf': 'application/pdf',
+    '.txt': 'text/plain',
+    '.text': 'text/plain',
     '.mp3': 'audio/mpeg',
     '.wav': 'audio/wav',
     '.m4a': 'audio/mp4',
@@ -18,7 +21,7 @@ function mimeFor(filename, type) {
     '.webm': 'audio/webm',
     '.mp4': 'video/mp4',
   };
-  return map[ext] || (type === 'pdf' ? 'application/pdf' : 'application/octet-stream');
+  return map[ext] || (type === 'pdf' ? 'application/pdf' : type === 'text' ? 'text/plain' : 'application/octet-stream');
 }
 
 function safeFilename(filename) {
@@ -48,6 +51,8 @@ async function extractAndEmbed(docId, filePath, type) {
     chunks = await processPdf(filePath);
   } else if (type === 'audio') {
     chunks = await processAudio(filePath);
+  } else if (type === 'text') {
+    chunks = processText(filePath);
   } else {
     throw new Error(`Unsupported file type: ${type}`);
   }
