@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>askBack</title>
+  <link rel="stylesheet" href="{{BASE}}/css/admin.css?v=daily-digest" />
+  <script>window.ASKBACK_BASE = "{{BASE}}";</script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="#knowledge" aria-label="askBack">
+        <span class="brand-logos">
+          <img class="logo logo-undp" src="{{BASE}}/images/undp-logo.png" alt="UNDP" />
+          <span class="logo-rule" aria-hidden="true"></span>
+          <img class="logo logo-unipod" src="{{BASE}}/images/unipod-logo.svg" alt="UniPod" />
+        </span>
+        <span class="bot-name">askBack</span>
+      </a>
+
+      <button
+        type="button"
+        id="bot-toggle"
+        class="switch"
+        role="switch"
+        aria-checked="true"
+        aria-label="askBack replies"
+        title="On: askBack answers WhatsApp messages. Off: it stays quiet."
+      >
+        <span class="switch-thumb" aria-hidden="true"></span>
+      </button>
+
+      <nav class="tabs" id="site-nav" role="tablist" aria-label="Sections">
+        <button type="button" role="tab" id="tab-knowledge" aria-controls="knowledge" aria-selected="true">Knowledge</button>
+        <button type="button" role="tab" id="tab-groups" aria-controls="groups" aria-selected="false" tabindex="-1">Groups</button>
+        <button type="button" role="tab" id="tab-status" aria-controls="status" aria-selected="false" tabindex="-1">Status</button>
+        <button type="button" role="tab" id="tab-activity" aria-controls="activity" aria-selected="false" tabindex="-1">Activity</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <p class="lede">askBack answers private WhatsApp chats when that is on. In groups you turn on, it answers only when tagged. It reads the chat, files, images, and documents. If it does not understand, it stays quiet.</p>
+
+    <section class="card" id="knowledge" role="tabpanel" aria-labelledby="tab-knowledge">
+      <h2>Knowledge</h2>
+      <p class="hint">Upload one or more files: WhatsApp chat exports (<code>.txt</code> or zip with media), PDFs, images, Word/Excel/PowerPoint, or audio. Give a shared name (e.g. Group photos). Each selected file is added to Knowledge.</p>
+      <form id="upload-form" class="upload-form">
+        <label class="field name-field">
+          <span>Name</span>
+          <input
+            type="text"
+            id="doc-title"
+            name="title"
+            placeholder="e.g. Meeting notes, Group chat"
+            maxlength="120"
+            autocomplete="off"
+            required
+          />
+        </label>
+        <label class="file-pick">
+          <input
+            type="file"
+            id="file"
+            name="file"
+            accept=".txt,.zip,.pdf,.jpg,.jpeg,.png,.gif,.webp,.docx,.xlsx,.pptx,.mp3,.wav,.m4a,.ogg,image/*,audio/*,application/pdf"
+            multiple
+            required
+          />
+          <span id="file-label">Choose files</span>
+        </label>
+        <button type="submit">Add</button>
+      </form>
+      <p id="upload-status" class="hint"></p>
+      <ul id="docs" class="file-list"></ul>
+
+      <div class="subsection">
+        <h3>Send to a group</h3>
+        <p class="hint">Type a message, pick text or a voice note, then askBack will post it in the WhatsApp group you pick. This voice is also used when askBack replies to a voice note.</p>
+        <form id="send-form" class="send-form">
+          <label class="field">
+            <span>Group</span>
+            <select id="send-group" required>
+              <option value="">Choose a group</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Message</span>
+            <textarea
+              id="send-text"
+              name="text"
+              rows="3"
+              maxlength="4000"
+              placeholder="Write the message…"
+              required
+            ></textarea>
+          </label>
+          <fieldset class="send-as">
+            <legend>Send as</legend>
+            <label class="send-choice">
+              <input type="radio" name="send-as" value="text" checked />
+              <span>Text</span>
+            </label>
+            <label class="send-choice">
+              <input type="radio" name="send-as" value="voice" />
+              <span>Voice note</span>
+            </label>
+          </fieldset>
+          <label class="field">
+            <span>Select voice</span>
+            <select id="tts-voice"></select>
+          </label>
+          <button type="submit">Send</button>
+        </form>
+        <p id="send-status" class="hint"></p>
+      </div>
+
+      <div class="subsection">
+        <h3>Admins</h3>
+        <p class="hint">In a group, tag askBack if it has no answer — it will tag these people instead of guessing.</p>
+        <form id="admin-form" class="admin-form">
+          <label class="field">
+            <span>Name</span>
+            <input type="text" id="admin-name" name="name" placeholder="e.g. Moeng" maxlength="80" autocomplete="name" required />
+          </label>
+          <label class="field">
+            <span>WhatsApp number</span>
+            <input type="tel" id="admin-phone" name="phone" placeholder="+267 76 123 456" inputmode="tel" autocomplete="tel" required />
+          </label>
+          <button type="submit">Add</button>
+        </form>
+        <p id="admin-status" class="hint"></p>
+        <ul id="admins" class="file-list"></ul>
+      </div>
+    </section>
+
+    <section class="card" id="groups" role="tabpanel" aria-labelledby="tab-groups" hidden>
+      <h2>Groups</h2>
+      <p class="hint">Turn private chats or a group on. In groups, askBack answers only when tagged. Community hubs stay silent so a reply is not copied into every linked group.</p>
+      <ul class="file-list">
+        <li class="group-item">
+          <div>
+            <h3>Private chats</h3>
+            <p class="meta" id="private-chats-meta">Answering in one-to-one chats</p>
+          </div>
+          <button
+            type="button"
+            id="private-chats-toggle"
+            class="switch"
+            role="switch"
+            aria-checked="true"
+            aria-label="Private chats"
+            title="On: askBack answers private WhatsApp chats. Off: it stays quiet in private chats."
+          >
+            <span class="switch-thumb" aria-hidden="true"></span>
+          </button>
+        </li>
+        <li class="group-item">
+          <div>
+            <h3>Daily briefing</h3>
+            <p class="meta" id="daily-digest-meta">Every day at 5:00 CAT: yesterday recap + today deadlines</p>
+          </div>
+          <div class="group-actions">
+            <button type="button" id="daily-digest-run" class="ghost">Send now</button>
+            <button
+              type="button"
+              id="daily-digest-toggle"
+              class="switch"
+              role="switch"
+              aria-checked="true"
+              aria-label="Daily briefing"
+              title="On: send a short briefing to enabled groups each day at 5:00 CAT."
+            >
+              <span class="switch-thumb" aria-hidden="true"></span>
+            </button>
+          </div>
+        </li>
+        <li class="group-item">
+          <div>
+            <h3>Deadline reminders</h3>
+            <p class="meta" id="deadline-reminders-meta">Ping enabled groups 30 minutes before deadlines or scheduled items</p>
+          </div>
+          <button
+            type="button"
+            id="deadline-reminders-toggle"
+            class="switch"
+            role="switch"
+            aria-checked="true"
+            aria-label="Deadline reminders"
+            title="On: remind everyone in enabled groups 30 minutes before a deadline or scheduled item."
+          >
+            <span class="switch-thumb" aria-hidden="true"></span>
+          </button>
+        </li>
+      </ul>
+      <ul id="group-list" class="file-list group-list-rest"></ul>
+    </section>
+
+    <section class="card" id="status" role="tabpanel" aria-labelledby="tab-status" hidden>
+      <h2>Status</h2>
+      <div id="wa-pair" class="pair-box">Waiting for WhatsApp…</div>
+      <div class="grid" id="stats-grid">Loading…</div>
+    </section>
+
+    <section class="card" id="activity" role="tabpanel" aria-labelledby="tab-activity" hidden>
+      <h2>Activity</h2>
+      <ul id="qa" class="qa-list"></ul>
+    </section>
+  </main>
+
+  <dialog id="view-dialog" class="view-dialog">
+    <div class="view-head">
+      <div>
+        <h2 id="view-title">File</h2>
+        <p id="view-meta" class="hint"></p>
+      </div>
+      <button type="button" class="ghost" id="view-close">Close</button>
+    </div>
+    <div id="view-body"></div>
+  </dialog>
+
+  <dialog id="edit-dialog">
+    <form id="edit-form">
+      <h2>Edit file</h2>
+      <label class="field">
+        <span>Name</span>
+        <input type="text" id="edit-title" autocomplete="off" maxlength="120" required />
+      </label>
+      <label class="field">
+        <span>Replace file (optional)</span>
+        <input type="file" id="edit-file" />
+      </label>
+      <p id="edit-status" class="hint"></p>
+      <div class="row dialog-actions">
+        <button type="button" class="ghost" id="edit-cancel">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="{{BASE}}/js/admin.js?v=deadline-reminders"></script>
+</body>
+</html>

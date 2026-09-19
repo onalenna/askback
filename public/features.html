@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>askBack — features</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #0e1512;
+      --fog: #e8f0ea;
+      --mist: #b7c9bc;
+      --leaf: #9fe870;
+      --glow: #d4ff9a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      background: var(--ink);
+      color: var(--fog);
+      font-family: "Manrope", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      padding: clamp(1.25rem, 4vw, 2.5rem);
+      background:
+        radial-gradient(ellipse 90% 70% at 12% 18%, rgba(159, 232, 112, 0.14), transparent 55%),
+        radial-gradient(ellipse 70% 55% at 88% 82%, rgba(183, 201, 188, 0.1), transparent 50%),
+        linear-gradient(165deg, #0e1512 0%, #15201a 48%, #0c1210 100%);
+      overflow: hidden;
+    }
+
+    .page {
+      width: min(920px, 100%);
+      max-height: calc(100dvh - 2.5rem);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: clamp(1.4rem, 3.5vh, 2.4rem);
+      animation: rise 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(18px); }
+      to { opacity: 1; transform: none; }
+    }
+
+    @keyframes draw {
+      from { transform: scaleX(0); }
+      to { transform: scaleX(1); }
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.45; }
+      50% { opacity: 1; }
+    }
+
+    header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      font-family: "Fraunces", Georgia, serif;
+      font-weight: 700;
+      font-size: clamp(2.6rem, 7vw, 4.2rem);
+      letter-spacing: -0.04em;
+      line-height: 0.92;
+      color: var(--fog);
+    }
+
+    .brand em {
+      font-style: normal;
+      color: var(--leaf);
+    }
+
+    .tag {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--mist);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+    }
+
+    .tag::before {
+      content: "";
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: var(--leaf);
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+
+    .lead {
+      max-width: 28ch;
+      font-family: "Fraunces", Georgia, serif;
+      font-weight: 500;
+      font-size: clamp(1.35rem, 3.4vw, 1.85rem);
+      line-height: 1.25;
+      letter-spacing: -0.02em;
+      color: var(--fog);
+    }
+
+    .lead span {
+      color: var(--mist);
+    }
+
+    .rule {
+      height: 1px;
+      width: 100%;
+      background: linear-gradient(90deg, var(--leaf), transparent 70%);
+      transform-origin: left;
+      animation: draw 1s 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    .features {
+      list-style: none;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0;
+      border-top: 1px solid rgba(232, 240, 234, 0.08);
+    }
+
+    @media (min-width: 720px) {
+      .features {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .features li {
+      display: grid;
+      grid-template-columns: 2.2rem 1fr;
+      gap: 0.85rem;
+      padding: clamp(0.85rem, 2vh, 1.15rem) 0;
+      border-bottom: 1px solid rgba(232, 240, 234, 0.08);
+      animation: rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    .features li:nth-child(1) { animation-delay: 0.12s; }
+    .features li:nth-child(2) { animation-delay: 0.18s; }
+    .features li:nth-child(3) { animation-delay: 0.24s; }
+    .features li:nth-child(4) { animation-delay: 0.3s; }
+    .features li:nth-child(5) { animation-delay: 0.36s; }
+    .features li:nth-child(6) { animation-delay: 0.42s; }
+
+    @media (min-width: 720px) {
+      .features li:nth-child(odd) {
+        padding-right: 1.5rem;
+        border-right: 1px solid rgba(232, 240, 234, 0.08);
+      }
+      .features li:nth-child(even) {
+        padding-left: 1.5rem;
+      }
+    }
+
+    .n {
+      font-family: "Fraunces", Georgia, serif;
+      font-size: 0.95rem;
+      color: var(--leaf);
+      padding-top: 0.15rem;
+    }
+
+    .copy strong {
+      display: block;
+      font-size: 0.98rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin-bottom: 0.2rem;
+      color: var(--fog);
+    }
+
+    .copy p {
+      font-size: 0.86rem;
+      line-height: 1.4;
+      color: var(--mist);
+      max-width: 36ch;
+    }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 1rem;
+      flex-wrap: wrap;
+      color: var(--mist);
+      font-size: 0.75rem;
+      letter-spacing: 0.04em;
+    }
+
+    footer b {
+      color: var(--glow);
+      font-weight: 600;
+    }
+
+    @media print {
+      body {
+        background: #0e1512;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .page { max-height: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <h1 class="brand">ask<em>Back</em></h1>
+      <p class="tag">WhatsApp knowledge bot</p>
+    </header>
+
+    <div>
+      <p class="lead">
+        Answers from what you already shared.
+        <span>In chat. In voice. On time.</span>
+      </p>
+      <div class="rule" aria-hidden="true"></div>
+
+      <ul class="features">
+        <li>
+          <span class="n">01</span>
+          <div class="copy">
+            <strong>Knowledge answers</strong>
+            <p>Tag it in a group, or ask privately. It pulls from uploads and the live chat.</p>
+          </div>
+        </li>
+        <li>
+          <span class="n">02</span>
+          <div class="copy">
+            <strong>Voice, not noise</strong>
+            <p>Voice notes get spoken replies. Links stay as text. No emoji name-reading.</p>
+          </div>
+        </li>
+        <li>
+          <span class="n">03</span>
+          <div class="copy">
+            <strong>Named links</strong>
+            <p>Multiple links arrive spaced, titled, with when they were posted and what for.</p>
+          </div>
+        </li>
+        <li>
+          <span class="n">04</span>
+          <div class="copy">
+            <strong>5:00 CAT briefing</strong>
+            <p>Yesterday in brief. Today’s deadlines and expectations. Sent to enabled groups.</p>
+          </div>
+        </li>
+        <li>
+          <span class="n">05</span>
+          <div class="copy">
+            <strong>30-minute reminders</strong>
+            <p>If something is due or scheduled, everyone gets a ping half an hour before.</p>
+          </div>
+        </li>
+        <li>
+          <span class="n">06</span>
+          <div class="copy">
+            <strong>English when unsure</strong>
+            <p>Replies match the language only when it’s clear. Otherwise, English.</p>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <footer>
+      <span>One bot. Your files. Your groups.</span>
+      <span><b>askBack</b> · UNDP UniPod</span>
+    </footer>
+  </main>
+</body>
+</html>
