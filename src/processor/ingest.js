@@ -106,6 +106,16 @@ async function ingestFile(filePath, filename, type, title = '') {
     storedPath = persistUpload(docId, filePath, filename);
     statements.updateDocFile.run(storedPath, mime, docId);
     const chunkCount = await extractAndEmbed(docId, filePath, type, filename);
+    // Recordings get an extra structured summary chunk so members can ask
+    // "what did I miss in the last meeting". Best-effort, never blocks upload.
+    try {
+      const { summarizeRecordingDoc, isRecordingType } = require('../whatsapp/meetings');
+      if (isRecordingType(type)) {
+        await summarizeRecordingDoc(docId, type, label);
+      }
+    } catch (err) {
+      console.warn('[ingest] meeting summary skipped:', err.message || err);
+    }
     return {
       id: docId,
       filename,

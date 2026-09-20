@@ -303,6 +303,24 @@ function looksLikeSameQuestion(text) {
   );
 }
 
+/**
+ * "What did I miss in the last call/meeting" — asks for the newest recording's
+ * summary rather than a chat recap. Checked before the generic catch-up so a
+ * meeting-specific ask is routed to the meeting summary.
+ */
+function isMeetingCatchupRequest(text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!t) return false;
+  const meetingWord = /\b(meeting|call|recording|session|webinar|standup|stand-up)\b/;
+  if (!meetingWord.test(t)) return false;
+  if (/\bwhat (did i|have i) miss(ed)?\b/.test(t)) return true;
+  if (/\b(summar(y|ise|ize)|recap|catch me up on|brief me on|what happened in)\b/.test(t)) return true;
+  if (/\b(last|latest|recent|the)\b.*\b(meeting|call|recording|session)\b/.test(t) && /\?$/.test(text || '')) {
+    return true;
+  }
+  return false;
+}
+
 function isFollowUp(text) {
   const t = String(text || '').replace(/\s+/g, ' ').trim();
   if (!t || isChitchat(t)) return false;
@@ -395,6 +413,7 @@ module.exports = {
   isDocSummaryRequest,
   isTranslateRequest,
   isDocWorkRequest,
+  isMeetingCatchupRequest,
   needsBroadKnowledge,
   botHelpAnswer,
   greetingAnswer,

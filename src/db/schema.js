@@ -101,4 +101,16 @@ module.exports = function createSchema(db) {
   db.prepare(
     `INSERT OR IGNORE INTO settings (key, value) VALUES ('deadline_reminders', 'on')`
   ).run();
+  // Auto-summarize uploaded call/meeting recordings into Key points / Decisions / Action items.
+  db.prepare(
+    `INSERT OR IGNORE INTO settings (key, value) VALUES ('meeting_summaries', 'on')`
+  ).run();
+  // Prepend a short "this came up before" note when reusing a stored answer.
+  db.prepare(
+    `INSERT OR IGNORE INTO settings (key, value) VALUES ('repeat_nudge', 'on')`
+  ).run();
+  // Append a one-line "Source: <document>" footer to answers built from an uploaded file.
+  db.prepare(
+    `INSERT OR IGNORE INTO settings (key, value) VALUES ('show_sources', 'on')`
+  ).run();
 };

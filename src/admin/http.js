@@ -18,6 +18,18 @@ function publicAdmin() {
   return Boolean(basePath()) || process.env.PUBLIC_ADMIN === '1';
 }
 
+/**
+ * Whether the admin panel requires a login. True when it is public (behind a
+ * proxy / BASE_PATH), OR when the operator opted into a local login by setting
+ * LOCAL_ADMIN_PASSWORD=1 (or 'on'/'true'). This lets a developer password-
+ * protect the dashboard even on a laptop, without exposing it publicly.
+ */
+function requireAuth() {
+  if (publicAdmin()) return true;
+  const flag = String(process.env.LOCAL_ADMIN_PASSWORD || '').trim().toLowerCase();
+  return flag === '1' || flag === 'on' || flag === 'true';
+}
+
 function secretEqual(a, b) {
   const left = crypto.createHash('sha256').update(String(a)).digest();
   const right = crypto.createHash('sha256').update(String(b)).digest();
@@ -30,7 +42,7 @@ function unauthorized(res) {
 }
 
 function requireAdminAuth(req, res, next) {
-  if (!publicAdmin()) return next();
+  if (!requireAuth()) return next();
   const password = adminPassword();
   if (!password) {
     res.status(500).send('Set ADMIN_PASSWORD before putting the admin panel online.');
@@ -61,5 +73,6 @@ module.exports = {
   adminUser,
   adminPassword,
   publicAdmin,
+  requireAuth,
   requireAdminAuth,
 };

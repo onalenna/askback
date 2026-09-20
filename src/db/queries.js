@@ -50,6 +50,15 @@ const statements = {
   allStickers: db.prepare(
     `SELECT * FROM documents WHERE type = 'sticker' ORDER BY created_at DESC`
   ),
+  // Newest uploaded call/meeting recording that has been processed into chunks.
+  // Used by the "what did I miss in the last meeting" answer path.
+  newestMeetingDoc: db.prepare(
+    `SELECT * FROM documents
+     WHERE type IN ('audio', 'video')
+       AND chunk_count > 0
+     ORDER BY created_at DESC
+     LIMIT 1`
+  ),
   deleteDoc: db.prepare(`DELETE FROM documents WHERE id = ?`),
 
   insertChunk: db.prepare(
@@ -153,16 +162,64 @@ function searchSimilarQuestions(queryEmbedding, threshold, limit = 5) {
     .slice(0, limit);
 }
 
-function searchKnowledgeBase(queryEmbedding, threshold, limit = 5) {
-  const rows = db
+/**
+ * In-memory cache of parsed chunk embeddings.
+ *
+ * Without this, every question loaded ALL chunk rows from SQLite and JSON.parsed
+ * every embedding — tens of MB of work per query, which is the main thing that
+ * made bursts of simultaneous questions slow. We parse once, keep the vectors as
+ * plain arrays, and reload only when the chunk set actually changes.
+ *
+ * Change detection is cheap and does not need every writer to call us: we
+ * compare a lightweight signature (row count + max id) against the last load.
+ * Inserts bump the count and/or max id; deletes change the count. That covers
+ * ingest (add), replace (delete+add), and document delete.
+ */
+let _chunkCache = { sig: null, rows: [] };
+
+function chunkSignature() {
+  try {
+    const row = db.prepare(`SELECT COUNT(*) AS c, COALESCE(MAX(id), 0) AS m FROM chunks`).get();
+    return `${row.c}:${row.m}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Return chunks as { id, document_id, content, vec:number[] }, cached. */
+function getChunkVectors() {
+  const sig = chunkSignature();
+  if (sig !== null && sig === _chunkCache.sig) return _chunkCache.rows;
+
+  const raw = db
     .prepare(`SELECT id, document_id, content, embedding FROM chunks WHERE embedding IS NOT NULL`)
     .all();
-  return rows
+  const rows = [];
+  for (const r of raw) {
+    let vec;
+    try {
+      vec = JSON.parse(r.embedding);
+    } catch {
+      continue; // skip a corrupt row rather than fail the whole search
+    }
+    rows.push({ id: r.id, document_id: r.document_id, content: r.content, vec });
+  }
+  _chunkCache = { sig, rows };
+  return rows;
+}
+
+/** Force a cache reload on the next search (e.g. after a bulk change). */
+function invalidateChunkCache() {
+  _chunkCache = { sig: null, rows: [] };
+}
+
+function searchKnowledgeBase(queryEmbedding, threshold, limit = 5) {
+  return getChunkVectors()
     .map((row) => ({
       id: row.id,
       document_id: row.document_id,
       content: row.content,
-      score: cosineSimilarity(queryEmbedding, JSON.parse(row.embedding)),
+      score: cosineSimilarity(queryEmbedding, row.vec),
     }))
     .filter((r) => r.score >= threshold)
     .sort((a, b) => b.score - a.score)
@@ -199,7 +256,7 @@ function searchKnowledgeText(question, limit = 16) {
     .replace(/\s+/g, ' ')
     .trim();
   const termRes = terms.map((term) => new RegExp(`\\b${escapeRegExp(term)}\\b`, 'i'));
-  const rows = db.prepare(`SELECT id, document_id, content FROM chunks`).all();
+  const rows = getChunkVectors();
   return rows
     .map((row) => {
       const content = String(row.content || '');
@@ -233,4 +290,5 @@ module.exports = {
   searchKnowledgeBase,
   searchKnowledgeText,
   setQAEmbedding,
+  invalidateChunkCache,
 };

@@ -1,0 +1,71 @@
+# askBack — Coolify / Docker Compose deployment.
+#
+# Coolify handles the public domain + HTTPS and proxies to this container's
+# port 3000. Set the environment variables below in the Coolify UI (do NOT
+# commit real secrets). The three named volumes keep your data across
+# redeploys: the SQLite database, the WhatsApp login (so you scan the QR only
+# once), and uploaded knowledge files.
+services:
+  askback:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      # Coolify maps its proxy to this. Locally it exposes http://localhost:3000
+      - "3000:3000"
+    environment:
+      # --- Web / admin panel ---
+      PORT: 3000
+      HOST: 0.0.0.0
+      # Put the panel behind a password (required when public).
+      PUBLIC_ADMIN: "1"
+      ADMIN_USER: ${ADMIN_USER:-askback}
+      # Default password if none is set in Coolify. CHANGE THIS for real use —
+      # a committed default is only as private as this repo.
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-AskBackUnipod}
+      # Set BASE_PATH only if you serve under a sub-path (e.g. /undpbot).
+      BASE_PATH: ${BASE_PATH:-}
+      # Where the SQLite database lives (mounted volume, see below).
+      DATA_DIR: /data
+
+      # --- AI provider (pick one; see .env.example for all the vars) ---
+      # AWS Bedrock example:
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      BEDROCK_CHAT_MODEL: ${BEDROCK_CHAT_MODEL:-}
+      BEDROCK_MINI_MODEL: ${BEDROCK_MINI_MODEL:-}
+      BEDROCK_EMBEDDING_MODEL: ${BEDROCK_EMBEDDING_MODEL:-}
+      # Or OpenAI / OpenRouter / Azure:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+
+      # --- Optional: voice replies (Lemonfox TTS) ---
+      LEMONFOX_API_KEY: ${LEMONFOX_API_KEY:-}
+      LEMONFOX_VOICE: ${LEMONFOX_VOICE:-sarah}
+
+      # --- Answer tuning (safe defaults) ---
+      BOT_MODE: ${BOT_MODE:-auto}
+      PRIVATE_CHATS: ${PRIVATE_CHATS:-on}
+      KB_MATCH_THRESHOLD: ${KB_MATCH_THRESHOLD:-0.45}
+      REPEAT_THRESHOLD: ${REPEAT_THRESHOLD:-0.82}
+      TOP_K: ${TOP_K:-3}
+    volumes:
+      - askback-data:/data          # SQLite database (data.db)
+      - askback-auth:/app/auth_info # WhatsApp login — keep to avoid re-scanning
+      - askback-uploads:/app/uploads # uploaded knowledge files
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  askback-data:
+  askback-auth:
+  askback-uploads:

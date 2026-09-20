@@ -7,4 +7,5 @@ uploads/
 *.db
 *.db-wal
 *.db-shm
+*.log
 .DS_Store

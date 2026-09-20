@@ -5,7 +5,7 @@ const fs = require('fs');
 const express = require('express');
 const { createAdminRouter } = require('./src/admin/routes');
 const { startWhatsApp } = require('./src/whatsapp/client');
-const { basePath, publicAdmin, adminPassword, adminUser, requireAdminAuth } = require('./src/admin/http');
+const { basePath, publicAdmin, adminPassword, adminUser, requireAdminAuth, requireAuth } = require('./src/admin/http');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || (publicAdmin() ? '0.0.0.0' : '127.0.0.1');
@@ -13,8 +13,8 @@ const BASE = basePath();
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const INDEX_PATH = path.join(PUBLIC_DIR, 'index.html');
 
-if (publicAdmin() && !adminPassword()) {
-  console.error('BASE_PATH or PUBLIC_ADMIN is set, but ADMIN_PASSWORD is empty. Refusing to start.');
+if (requireAuth() && !adminPassword()) {
+  console.error('Admin login is required (PUBLIC_ADMIN/BASE_PATH or LOCAL_ADMIN_PASSWORD set), but ADMIN_PASSWORD is empty. Refusing to start.');
   process.exit(1);
 }
 

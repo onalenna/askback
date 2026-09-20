@@ -8,7 +8,11 @@ const { ingestFile, ingestSticker, replaceFile, unlinkQuiet } = require('../proc
 const { openChatExport, readChatText, parseChatTranscript, looksLikeChat } = require('../processor/text');
 const { isKnowledgeOnly } = require('../whatsapp/share');
 const { resolveUploadType, detectType } = require('../processor/filetype');
-const { getBotMode, getPrivateChats, setPrivateChats } = require('../whatsapp/answer');
+const { getBotMode, getPrivateChats, setPrivateChats, getRepeatNudge, setRepeatNudge, getShowSources, setShowSources } = require('../whatsapp/answer');
+const { getMeetingSummaries, setMeetingSummaries } = require('../whatsapp/meetings');
+const { buildAnalytics } = require('./analytics');
+const { getTuning, setTuning } = require('../ai/settings');
+const { providerName, CHAT_MODEL, EMBEDDING_MODEL, getEmbeddingsBatch } = require('../ai/embeddings');
 const { getLemonfoxVoice, listLemonfoxVoices, setLemonfoxVoice } = require('../ai/voices');
 const QRCode = require('qrcode');
 const { getSocket, getPairingState, rePairWhatsApp } = require('../whatsapp/client');
@@ -177,6 +181,9 @@ function liveStats() {
     privateChats: getPrivateChats(),
     dailyDigest: getDailyDigest(),
     deadlineReminders: getDeadlineReminders(),
+    meetingSummaries: getMeetingSummaries(),
+    repeatNudge: getRepeatNudge(),
+    showSources: getShowSources(),
     lemonfoxVoice: getLemonfoxVoice(),
     lemonfoxVoices: listLemonfoxVoices(),
   };
@@ -303,6 +310,95 @@ function createAdminRouter() {
     res.json(statements.recentQA.all(50));
   });
 
+  router.get('/api/analytics', (_req, res) => {
+    try {
+      res.json(buildAnalytics());
+    } catch (err) {
+      console.error('[admin] analytics failed:', err.message || err);
+      res.status(500).json({ error: err.message || 'Could not build analytics' });
+    }
+  });
+
+  // ---- Dev / Control panel ----
+
+  // Live system status + all tuning knobs, for the Control tab.
+  router.get('/api/control', (_req, res) => {
+    try {
+      const wa = getPairingState();
+      res.json({
+        provider: providerName(),
+        chatModel: CHAT_MODEL(),
+        embeddingModel: EMBEDDING_MODEL(),
+        whatsapp: { connected: wa.connected, phone: wa.phone || '' },
+        botMode: getBotMode(),
+        counts: {
+          documents: db.prepare(`SELECT COUNT(*) AS c FROM documents WHERE type != 'sticker'`).get().c,
+          chunks: db.prepare(`SELECT COUNT(*) AS c FROM chunks`).get().c,
+          qa: db.prepare(`SELECT COUNT(*) AS c FROM qa_history`).get().c,
+          messages: db.prepare(`SELECT COUNT(*) AS c FROM chat_messages`).get().c,
+        },
+        uptimeSeconds: Math.round(process.uptime()),
+        nodeVersion: process.version,
+        tuning: getTuning(),
+      });
+    } catch (err) {
+      console.error('[admin] control status failed:', err.message || err);
+      res.status(500).json({ error: err.message || 'Could not read control status' });
+    }
+  });
+
+  // Update one answer-tuning value live (no restart).
+  router.post('/api/tuning', express.json(), (req, res) => {
+    const key = String(req.body?.key || '').trim();
+    try {
+      const value = setTuning(key, req.body?.value);
+      res.json({ key, value });
+    } catch (err) {
+      res.status(400).json({ error: err.message || 'Could not update setting' });
+    }
+  });
+
+  // Danger zone: wipe all Q&A history (answers + their embeddings). Keeps
+  // documents/knowledge. Useful when testing or clearing a bad training set.
+  router.post('/api/maintenance/clear-qa', (_req, res) => {
+    try {
+      const before = db.prepare(`SELECT COUNT(*) AS c FROM qa_history`).get().c;
+      db.prepare(`DELETE FROM qa_history`).run();
+      res.json({ ok: true, deleted: before });
+    } catch (err) {
+      res.status(500).json({ error: err.message || 'Could not clear history' });
+    }
+  });
+
+  // Danger zone: recompute embeddings for every stored chunk (e.g. after
+  // switching embedding provider/model). Runs in the background; returns
+  // immediately with the count queued.
+  router.post('/api/maintenance/rebuild-embeddings', async (_req, res) => {
+    try {
+      const rows = db.prepare(`SELECT id, content FROM chunks ORDER BY id ASC`).all();
+      res.json({ ok: true, queued: rows.length });
+      // Rebuild after responding so the request does not hang.
+      setImmediate(async () => {
+        try {
+          const BATCH = 50;
+          for (let i = 0; i < rows.length; i += BATCH) {
+            const slice = rows.slice(i, i + BATCH);
+            const vecs = await getEmbeddingsBatch(slice.map((r) => r.content));
+            const upd = db.prepare(`UPDATE chunks SET embedding = ? WHERE id = ?`);
+            slice.forEach((r, j) => upd.run(JSON.stringify(vecs[j]), r.id));
+          }
+          const { invalidateChunkCache } = require('../db/queries');
+          invalidateChunkCache();
+          console.log(`[admin] rebuilt embeddings for ${rows.length} chunk(s)`);
+        } catch (err) {
+          console.error('[admin] rebuild embeddings failed:', err.message || err);
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message || 'Could not start rebuild' });
+    }
+  });
+
   router.post('/api/bot-mode', express.json(), (req, res) => {
     const mode = req.body?.mode === 'off' ? 'off' : 'auto';
     statements.setSetting.run('bot_mode', mode);
@@ -345,6 +441,21 @@ function createAdminRouter() {
       );
     }
     res.json({ deadlineReminders });
+  });
+
+  router.post('/api/meeting-summaries', express.json(), (req, res) => {
+    const enabled = req.body?.enabled !== false && req.body?.enabled !== 'off';
+    res.json({ meetingSummaries: setMeetingSummaries(enabled) });
+  });
+
+  router.post('/api/repeat-nudge', express.json(), (req, res) => {
+    const enabled = req.body?.enabled !== false && req.body?.enabled !== 'off';
+    res.json({ repeatNudge: setRepeatNudge(enabled) });
+  });
+
+  router.post('/api/show-sources', express.json(), (req, res) => {
+    const enabled = req.body?.enabled !== false && req.body?.enabled !== 'off';
+    res.json({ showSources: setShowSources(enabled) });
   });
 
   router.post('/api/tts-voice', express.json(), (req, res) => {

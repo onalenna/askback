@@ -2,6 +2,19 @@
 
 WhatsApp assistant that answers in private chats and in groups you turn on. It uses uploaded files, the chat, and OpenAI. Replies match the language you used. Voice notes get a voice-note reply.
 
+## Features
+
+- **Answers from your files and chat** — upload PDFs, Office docs, images, audio, or WhatsApp exports; askBack answers questions from them.
+- **Meeting and call summaries** — upload a recording and askBack turns it into Key points, Decisions, and Action items. Ask *"what did I miss in the last meeting?"* to get the summary. (Toggle: Meeting summaries.)
+- **Catch me up** — ask *"catch me up"*, *"what did I miss since Monday"*, or *"what happened in the last 2 days"* and get a short recap of the group over that window.
+- **Already-answered note** — when a question was answered before, askBack reuses that answer and notes when it came up, cutting repeat questions. (Toggle: Already-answered note.)
+- **Source note** — answers built from a file end with a short *"Source: <file>"* line so people know where it came from. (Toggle: Show sources.)
+- **Daily briefing** — an optional 05:00 CAT recap of yesterday plus today's deadlines.
+- **Deadline reminders** — pings the group 30 minutes before a deadline or scheduled item.
+- **Voice + many languages** — replies in the language you used; voice notes get a spoken reply.
+
+New here as a developer? Read [CONTRIBUTING.md](CONTRIBUTING.md) for the module layout and how to add a feature.
+
 ## Run
 
 ```bash

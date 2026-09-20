@@ -37,6 +37,9 @@ function renderStats(s) {
   setPrivateChatsToggle(privateOn);
   setDailyDigestToggle(s.dailyDigest !== 'off');
   setDeadlineRemindersToggle(s.deadlineReminders !== 'off');
+  setMeetingSummariesToggle(s.meetingSummaries !== 'off');
+  setRepeatNudgeToggle(s.repeatNudge !== 'off');
+  setShowSourcesToggle(s.showSources !== 'off');
 }
 
 function prettyVoice(s) {
@@ -174,6 +177,48 @@ function setDeadlineRemindersToggle(on) {
     meta.textContent = on
       ? 'Ping enabled groups 30 minutes before deadlines or scheduled items'
       : 'Deadline reminders are off';
+  }
+}
+
+function setMeetingSummariesToggle(on) {
+  const btn = document.getElementById('meeting-summaries-toggle');
+  const meta = document.getElementById('meeting-summaries-meta');
+  if (btn) {
+    btn.setAttribute('aria-checked', String(on));
+    btn.disabled = false;
+  }
+  if (meta) {
+    meta.textContent = on
+      ? 'Auto-summarize uploaded call and meeting recordings'
+      : 'Meeting summaries are off';
+  }
+}
+
+function setRepeatNudgeToggle(on) {
+  const btn = document.getElementById('repeat-nudge-toggle');
+  const meta = document.getElementById('repeat-nudge-meta');
+  if (btn) {
+    btn.setAttribute('aria-checked', String(on));
+    btn.disabled = false;
+  }
+  if (meta) {
+    meta.textContent = on
+      ? 'Say when a question was already answered before'
+      : 'Already-answered note is off';
+  }
+}
+
+function setShowSourcesToggle(on) {
+  const btn = document.getElementById('show-sources-toggle');
+  const meta = document.getElementById('show-sources-meta');
+  if (btn) {
+    btn.setAttribute('aria-checked', String(on));
+    btn.disabled = false;
+  }
+  if (meta) {
+    meta.textContent = on
+      ? 'Add a one-line source note to answers from a file'
+      : 'Source notes are off';
   }
 }
 
@@ -787,6 +832,31 @@ document.getElementById('deadline-reminders-toggle').addEventListener('click', a
   }
 });
 
+/** Simple on/off toggle wiring shared by the newer feature switches. */
+function wireSettingToggle(id, endpoint) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('click', async () => {
+    const nextOn = el.getAttribute('aria-checked') !== 'true';
+    el.disabled = true;
+    try {
+      await api(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: nextOn }),
+      });
+      await refresh();
+    } catch (err) {
+      el.disabled = false;
+      alert(err.message);
+    }
+  });
+}
+
+wireSettingToggle('meeting-summaries-toggle', '/api/meeting-summaries');
+wireSettingToggle('repeat-nudge-toggle', '/api/repeat-nudge');
+wireSettingToggle('show-sources-toggle', '/api/show-sources');
+
 document.getElementById('group-list').addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-jid]');
   if (!btn) return;
@@ -1059,8 +1129,266 @@ refresh().catch((err) => {
     `<span class="error">${escapeHtml(err.message)}</span>`;
 });
 
-const TAB_IDS = ['knowledge', 'groups', 'status', 'activity'];
+const TAB_IDS = ['knowledge', 'groups', 'status', 'activity', 'analytics', 'control'];
 const tabsNav = document.getElementById('site-nav');
+
+const TUNING_LABELS = {
+  kb_match_threshold: 'Knowledge match threshold',
+  repeat_threshold: 'Reuse-answer threshold',
+  top_k: 'Knowledge pieces (Top-K)',
+  max_question_length: 'Max question length',
+};
+
+async function refreshControl() {
+  const statusEl = document.getElementById('control-status');
+  const tuningEl = document.getElementById('control-tuning');
+  if (!statusEl || !tuningEl) return;
+  try {
+    const c = await api('/api/control');
+    const mins = Math.round((c.uptimeSeconds || 0) / 60);
+    statusEl.innerHTML = [
+      ['Provider', c.provider],
+      ['Chat model', String(c.chatModel || '').split('.').pop()],
+      ['WhatsApp', c.whatsapp?.connected ? 'Connected' : 'Not connected'],
+      ['Bot', c.botMode === 'off' ? 'Off' : 'On'],
+      ['Documents', c.counts?.documents ?? 0],
+      ['Chunks', c.counts?.chunks ?? 0],
+      ['Q&A stored', c.counts?.qa ?? 0],
+      ['Uptime', mins + 'm'],
+    ]
+      .map(
+        ([label, value]) =>
+          `<div class="stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`
+      )
+      .join('');
+
+    const tuning = c.tuning || {};
+    tuningEl.innerHTML = Object.keys(tuning)
+      .map((key) => {
+        const t = tuning[key];
+        const step = t.max <= 1 ? '0.01' : '1';
+        return `
+        <label class="field tuning-field">
+          <span>${escapeHtml(TUNING_LABELS[key] || key)} <strong id="tune-val-${key}">${escapeHtml(t.value)}</strong></span>
+          <input type="range" data-tune="${key}" min="${t.min}" max="${t.max}" step="${step}" value="${t.value}" />
+        </label>`;
+      })
+      .join('');
+  } catch (err) {
+    statusEl.innerHTML = `<p class="hint"><span class="error">${escapeHtml(err.message)}</span></p>`;
+    tuningEl.innerHTML = '';
+  }
+}
+
+// Debounced save when a tuning slider moves.
+let tuneTimer = null;
+document.getElementById('control-tuning')?.addEventListener('input', (e) => {
+  const input = e.target.closest('input[data-tune]');
+  if (!input) return;
+  const key = input.dataset.tune;
+  const val = input.value;
+  const label = document.getElementById(`tune-val-${key}`);
+  if (label) label.textContent = val;
+  clearTimeout(tuneTimer);
+  tuneTimer = setTimeout(async () => {
+    try {
+      await api('/api/tuning', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value: val }),
+      });
+    } catch (err) {
+      alert(err.message);
+    }
+  }, 400);
+});
+
+async function controlAction(id, endpoint, confirmMsg, doneMsg) {
+  const btn = document.getElementById(id);
+  const status = document.getElementById('control-action-status');
+  if (!btn) return;
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  btn.disabled = true;
+  try {
+    const r = await api(endpoint, { method: 'POST' });
+    if (status) status.textContent = typeof doneMsg === 'function' ? doneMsg(r) : doneMsg;
+    await refreshControl();
+  } catch (err) {
+    if (status) status.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('ctl-clear-qa')?.addEventListener('click', () =>
+  controlAction(
+    'ctl-clear-qa',
+    '/api/maintenance/clear-qa',
+    'Delete ALL stored Q&A history? Knowledge files are kept. This cannot be undone.',
+    (r) => `Cleared ${r.deleted || 0} stored answers.`
+  )
+);
+
+document.getElementById('ctl-rebuild')?.addEventListener('click', () =>
+  controlAction(
+    'ctl-rebuild',
+    '/api/maintenance/rebuild-embeddings',
+    'Recompute embeddings for every knowledge chunk? Runs in the background.',
+    (r) => `Rebuilding embeddings for ${r.queued || 0} chunks in the background.`
+  )
+);
+
+document.getElementById('ctl-repair')?.addEventListener('click', () =>
+  controlAction(
+    'ctl-repair',
+    '/api/whatsapp/re-pair',
+    'Disconnect WhatsApp and show a new QR to pair a different number?',
+    'Re-pairing started. Open the Status tab to scan the new QR.'
+  )
+);
+
+
+/** Render one labelled list block (title + rows) for the analytics tab. */
+function analyticsList(title, rows, rowFn, empty) {
+  const items = (rows || []).map(rowFn).join('');
+  return `
+    <div class="subsection">
+      <h3>${escapeHtml(title)}</h3>
+      ${items ? `<ul class="file-list">${items}</ul>` : `<p class="meta">${escapeHtml(empty || 'No data yet.')}</p>`}
+    </div>`;
+}
+
+/** Render a compact bar chart from {label, value} pairs. */
+function analyticsBars(title, pairs, empty) {
+  const data = pairs || [];
+  const max = data.reduce((m, d) => Math.max(m, Number(d.value) || 0), 0) || 1;
+  const bars = data
+    .map(
+      (d) => `
+      <div class="bar-row">
+        <span class="bar-label">${escapeHtml(d.label)}</span>
+        <span class="bar-track"><span class="bar-fill" style="width:${Math.round((Number(d.value) / max) * 100)}%"></span></span>
+        <span class="bar-value">${escapeHtml(d.value)}</span>
+      </div>`
+    )
+    .join('');
+  return `
+    <div class="subsection">
+      <h3>${escapeHtml(title)}</h3>
+      ${bars ? `<div class="bar-chart">${bars}</div>` : `<p class="meta">${escapeHtml(empty || 'No data yet.')}</p>`}
+    </div>`;
+}
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return String(iso);
+  }
+}
+
+async function refreshAnalytics() {
+  const summaryEl = document.getElementById('analytics-summary');
+  const bodyEl = document.getElementById('analytics-body');
+  if (!summaryEl || !bodyEl) return;
+  try {
+    const a = await api('/api/analytics');
+    const t = a.totals || {};
+    summaryEl.innerHTML = [
+      ['Questions', t.totalQuestions ?? 0],
+      ['Today', t.questionsToday ?? 0],
+      ['Last 7 days', t.questions7d ?? 0],
+      ['Documents', t.documents ?? 0],
+      ['Active members', t.activeMembers ?? 0],
+      ['Tracked messages', t.trackedMessages ?? 0],
+    ]
+      .map(
+        ([label, value]) =>
+          `<div class="stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`
+      )
+      .join('');
+
+    const parts = [];
+
+    parts.push(
+      analyticsBars(
+        'Questions per day (14 days)',
+        (a.questionsPerDay || []).map((d) => ({ label: d.day, value: d.count })),
+        'No questions answered yet.'
+      )
+    );
+
+    parts.push(
+      analyticsBars(
+        'Answer sources',
+        (a.answerSources || []).map((d) => ({ label: d.source, value: d.count })),
+        'No answers yet.'
+      )
+    );
+
+    parts.push(
+      analyticsBars(
+        'Busiest hours (UTC)',
+        (a.busiestHours || []).map((d) => ({ label: `${String(d.hour).padStart(2, '0')}:00`, value: d.count })),
+        'No messages tracked yet.'
+      )
+    );
+
+    parts.push(
+      analyticsList(
+        'Most active members',
+        a.topMembers,
+        (m) => `<li class="file-item"><h3>${escapeHtml(m.name)}</h3><p class="meta">${escapeHtml(m.messages)} messages</p></li>`,
+        'No member activity seen yet.'
+      )
+    );
+
+    parts.push(
+      analyticsList(
+        'Group activity',
+        a.groupActivity,
+        (g) =>
+          `<li class="file-item"><h3>${escapeHtml(g.name)}</h3><p class="meta">${escapeHtml(g.messages)} messages · ${escapeHtml(g.questions)} questions${g.lastActive ? ` · last ${escapeHtml(fmtDate(g.lastActive))}` : ''}</p></li>`,
+        'No group activity yet.'
+      )
+    );
+
+    parts.push(
+      analyticsList(
+        'Most-used documents',
+        a.topDocuments,
+        (d) => `<li class="file-item"><h3>${escapeHtml(d.title || d.filename)}</h3><p class="meta">${escapeHtml(d.type)} · used ${escapeHtml(d.uses)} times</p></li>`,
+        'No documents used yet.'
+      )
+    );
+
+    parts.push(
+      analyticsList(
+        'Knowledge gaps (low-confidence answers)',
+        a.knowledgeGaps,
+        (k) =>
+          `<li class="file-item"><h3>${escapeHtml(String(k.question).slice(0, 120))}</h3><p class="meta">match ${k.score != null ? Math.round(k.score * 100) + '%' : 'n/a'}${k.groupName ? ` · ${escapeHtml(k.groupName)}` : ''}</p></li>`,
+        'No gaps flagged. Either coverage is good or few questions have been asked.'
+      )
+    );
+
+    parts.push(
+      analyticsList(
+        'Frequently asked',
+        a.topRepeatedQuestions,
+        (q) => `<li class="file-item"><h3>${escapeHtml(String(q.question).slice(0, 120))}</h3><p class="meta">asked ${escapeHtml(q.timesAnswered)} times</p></li>`,
+        'No repeated questions yet.'
+      )
+    );
+
+    bodyEl.innerHTML = parts.join('');
+  } catch (err) {
+    summaryEl.innerHTML = `<p class="hint"><span class="error">${escapeHtml(err.message)}</span></p>`;
+    bodyEl.innerHTML = '';
+  }
+}
+
 
 function showTab(id, { updateHash = true } = {}) {
   const tabId = TAB_IDS.includes(id) ? id : 'knowledge';
@@ -1075,6 +1403,8 @@ function showTab(id, { updateHash = true } = {}) {
   if (tabId === 'groups') refreshGroups();
   if (tabId === 'knowledge') refreshSendGroups();
   if (tabId === 'status') refreshWhatsAppPair();
+  if (tabId === 'analytics') refreshAnalytics();
+  if (tabId === 'control') refreshControl();
   if (updateHash && location.hash !== `#${tabId}`) {
     history.replaceState(null, '', `#${tabId}`);
   }

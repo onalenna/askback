@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>askBack</title>
-  <link rel="stylesheet" href="{{BASE}}/css/admin.css?v=daily-digest" />
+  <link rel="stylesheet" href="{{BASE}}/css/admin.css?v=analytics" />
   <script>window.ASKBACK_BASE = "{{BASE}}";</script>
 </head>
 <body>
@@ -36,6 +36,8 @@
         <button type="button" role="tab" id="tab-groups" aria-controls="groups" aria-selected="false" tabindex="-1">Groups</button>
         <button type="button" role="tab" id="tab-status" aria-controls="status" aria-selected="false" tabindex="-1">Status</button>
         <button type="button" role="tab" id="tab-activity" aria-controls="activity" aria-selected="false" tabindex="-1">Activity</button>
+        <button type="button" role="tab" id="tab-analytics" aria-controls="analytics" aria-selected="false" tabindex="-1">Analytics</button>
+        <button type="button" role="tab" id="tab-control" aria-controls="control" aria-selected="false" tabindex="-1">Control</button>
       </nav>
     </div>
   </header>
@@ -228,6 +230,57 @@
             <span class="switch-thumb" aria-hidden="true"></span>
           </button>
         </li>
+        <li class="group-item">
+          <div>
+            <h3>Meeting summaries</h3>
+            <p class="meta" id="meeting-summaries-meta">Auto-summarize uploaded call and meeting recordings</p>
+          </div>
+          <button
+            type="button"
+            id="meeting-summaries-toggle"
+            class="switch"
+            role="switch"
+            aria-checked="true"
+            aria-label="Meeting summaries"
+            title="On: turn an uploaded recording into Key points, Decisions and Action items so members can ask what they missed."
+          >
+            <span class="switch-thumb" aria-hidden="true"></span>
+          </button>
+        </li>
+        <li class="group-item">
+          <div>
+            <h3>Already-answered note</h3>
+            <p class="meta" id="repeat-nudge-meta">Say when a question was already answered before</p>
+          </div>
+          <button
+            type="button"
+            id="repeat-nudge-toggle"
+            class="switch"
+            role="switch"
+            aria-checked="true"
+            aria-label="Already-answered note"
+            title="On: prepend a short 'this came up before' note when reusing a past answer."
+          >
+            <span class="switch-thumb" aria-hidden="true"></span>
+          </button>
+        </li>
+        <li class="group-item">
+          <div>
+            <h3>Show sources</h3>
+            <p class="meta" id="show-sources-meta">Add a one-line source note to answers from a file</p>
+          </div>
+          <button
+            type="button"
+            id="show-sources-toggle"
+            class="switch"
+            role="switch"
+            aria-checked="true"
+            aria-label="Show sources"
+            title="On: append a short 'Source: <file>' line to answers built from an uploaded document."
+          >
+            <span class="switch-thumb" aria-hidden="true"></span>
+          </button>
+        </li>
       </ul>
       <ul id="group-list" class="file-list group-list-rest"></ul>
     </section>
@@ -242,6 +295,36 @@
       <h2>Activity</h2>
       <ul id="qa" class="qa-list"></ul>
       <nav id="qa-pager" class="list-pager" hidden aria-label="Activity pages"></nav>
+    </section>
+
+    <section class="card" id="analytics" role="tabpanel" aria-labelledby="tab-analytics" hidden>
+      <h2>Analytics</h2>
+      <p class="hint">Activity from what askBack has seen. Member and message counts reflect active participants and recent traffic, not the full group roster or full history.</p>
+      <div class="grid" id="analytics-summary">Loading…</div>
+      <div id="analytics-body"></div>
+    </section>
+
+    <section class="card" id="control" role="tabpanel" aria-labelledby="tab-control" hidden>
+      <h2>Control</h2>
+      <p class="hint">Developer controls for the whole bot. Answer tuning saves live, no restart needed.</p>
+      <div class="grid" id="control-status">Loading…</div>
+
+      <div class="subsection">
+        <h3>Answer tuning</h3>
+        <p class="hint">Higher match threshold = stricter (fewer but surer answers). Top-K = how many knowledge pieces feed the model.</p>
+        <div id="control-tuning"></div>
+      </div>
+
+      <div class="subsection">
+        <h3>Danger zone</h3>
+        <p class="hint">These change stored data. Use with care.</p>
+        <div class="group-actions">
+          <button type="button" id="ctl-rebuild" class="ghost">Rebuild embeddings</button>
+          <button type="button" id="ctl-clear-qa" class="ghost">Clear all Q&amp;A history</button>
+          <button type="button" id="ctl-repair" class="ghost">Re-pair WhatsApp</button>
+        </div>
+        <p id="control-action-status" class="hint"></p>
+      </div>
     </section>
   </main>
 
@@ -275,6 +358,6 @@
     </form>
   </dialog>
 
-  <script src="{{BASE}}/js/admin.js?v=deadline-reminders"></script>
+  <script src="{{BASE}}/js/admin.js?v=control"></script>
 </body>
 </html>

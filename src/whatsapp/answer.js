@@ -15,9 +15,12 @@ const {
   isFollowUp,
   needsBroadKnowledge,
   isKnowledgeAsk,
+  isMeetingCatchupRequest,
 } = require('./intent');
 const { formatChatContext } = require('./history');
 const { resolveUserAskLanguage } = require('../ai/language');
+const { isCatchupRequest, buildCatchup } = require('./catchup');
+const { newestMeetingSummary } = require('./meetings');
 
 function getBotMode() {
   try {
@@ -48,6 +51,111 @@ function setPrivateChats(enabled) {
 
 function privateChatsEnabled() {
   return getPrivateChats() !== 'off';
+}
+
+/** @returns {'on'|'off'} whether the "this came up before" nudge is enabled. */
+function getRepeatNudge() {
+  try {
+    const row = statements.getSetting.get('repeat_nudge');
+    if (!row?.value) return 'on';
+    return row.value === 'off' ? 'off' : 'on';
+  } catch {
+    return 'on';
+  }
+}
+
+/** Turn the repeat nudge on/off. @returns {'on'|'off'} */
+function setRepeatNudge(enabled) {
+  const value = enabled ? 'on' : 'off';
+  statements.setSetting.run('repeat_nudge', value);
+  return value;
+}
+
+/** @returns {'on'|'off'} whether the "Source: <file>" footer is enabled. */
+function getShowSources() {
+  try {
+    const row = statements.getSetting.get('show_sources');
+    if (!row?.value) return 'on';
+    return row.value === 'off' ? 'off' : 'on';
+  } catch {
+    return 'on';
+  }
+}
+
+/** Turn source citations on/off. @returns {'on'|'off'} */
+function setShowSources(enabled) {
+  const value = enabled ? 'on' : 'off';
+  statements.setSetting.run('show_sources', value);
+  return value;
+}
+
+/**
+ * A short, human relative date in CAT (Africa/Maputo) for a stored timestamp,
+ * used by the repeat nudge and citation footer. Examples: "earlier today",
+ * "yesterday", "on Tue 16 Sep".
+ * @param {string|number} when a SQLite datetime string or ms/seconds timestamp
+ */
+function relativeCatDate(when) {
+  const TZ = 'Africa/Maputo';
+  let ms;
+  if (typeof when === 'number') {
+    ms = when > 1e12 ? when : when * 1000;
+  } else {
+    const s = String(when || '').trim();
+    if (!s) return '';
+    // SQLite datetime('now') stores UTC without a zone marker.
+    ms = Date.parse(/[zZ]|[+-]\d{2}:?\d{2}$/.test(s) ? s : `${s}Z`);
+  }
+  if (!Number.isFinite(ms)) return '';
+
+  const dayKey = (t) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: TZ,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(t));
+
+  const today = dayKey(Date.now());
+  const then = dayKey(ms);
+  const oneDay = 24 * 60 * 60 * 1000;
+  const yesterday = dayKey(Date.now() - oneDay);
+
+  if (then === today) return 'earlier today';
+  if (then === yesterday) return 'yesterday';
+  return `on ${new Intl.DateTimeFormat('en-GB', {
+    timeZone: TZ,
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  }).format(new Date(ms))}`;
+}
+
+/**
+ * Append a one-line source citation to a knowledge-based answer, when enabled
+ * and a real document backed the answer. Recording docs read "from <title>";
+ * everything else reads "Source: <title>". Never mentions "knowledge files".
+ * @param {string} text the generated answer
+ * @param {number|null} documentId the top knowledge chunk's document id
+ */
+function withSourceCitation(text, documentId) {
+  if (getShowSources() === 'off') return text;
+  if (!documentId) return text;
+  let doc;
+  try {
+    doc = statements.getDoc.get(documentId);
+  } catch {
+    return text;
+  }
+  if (!doc) return text;
+  const title = String(doc.title || doc.filename || '').trim();
+  if (!title) return text;
+  if (text.includes(title)) return text; // already named it, do not repeat
+
+  const type = String(doc.type || '').toLowerCase();
+  const footer =
+    type === 'audio' || type === 'video' ? `from ${title}` : `Source: ${title}`;
+  return `${text.trim()}\n\n${footer}`;
 }
 
 function fileCaption(_files, _lang = 'en') {
@@ -198,6 +306,37 @@ async function answerQuestion(
   const help = botHelpAnswer(text, lang);
   if (help && !requireKnown) return { text: help, source: 'help', files: [], language: lang };
 
+  // Feature: "what did I miss in the last meeting/call" — return the newest
+  // recording's stored summary instead of a generic chat recap.
+  if (!fromMedia && isMeetingCatchupRequest(text)) {
+    const meeting = newestMeetingSummary();
+    if (meeting) {
+      return {
+        text: `Here's what I have from ${meeting.title}:\n\n${meeting.text}`,
+        source: 'meeting',
+        files: [],
+        language: lang || 'en',
+      };
+    }
+    if (requireKnown) {
+      console.log('[whatsapp] untagged meeting-catchup — no recording, staying silent');
+      return null;
+    }
+    return {
+      text: 'I do not have a meeting or call recording loaded yet. Upload one on Knowledge and I will summarize it.',
+      source: 'help',
+      files: [],
+      language: lang || 'en',
+    };
+  }
+
+  // Feature: time-window catch-up — "catch me up", "what did I miss since Monday".
+  if (!fromMedia && isCatchupRequest(text)) {
+    const recap = await buildCatchup(chatJid, text, { language: lang || 'en' });
+    if (recap) return recap;
+    if (requireKnown) return null;
+  }
+
   const baseMax = parseInt(process.env.MAX_QUESTION_LENGTH || '2000', 10);
   const maxLen = fromMedia ? Math.max(baseMax, 35000) : baseMax;
   if (text.length > maxLen) text = text.slice(0, maxLen);
@@ -324,8 +463,21 @@ async function answerQuestion(
     Number(repeated[0]?.score || 0) >= (needsBroadKnowledge(text) ? 0.9 : 0.88)
   ) {
     const best = repeated[0];
+    let prefix = '';
+    if (getRepeatNudge() === 'on') {
+      let when = '';
+      try {
+        const row = statements.getQAById.get(best.id);
+        when = relativeCatDate(row?.created_at);
+      } catch {
+        /* no timestamp — nudge without a date */
+      }
+      prefix = when
+        ? `This came up before (${when}), here's the answer:\n\n`
+        : "This came up before, here's the answer:\n\n";
+    }
     return {
-      text: best.answer,
+      text: `${prefix}${best.answer}`,
       source: 'repeat',
       score: best.score,
       files: [],
@@ -404,7 +556,25 @@ async function answerQuestion(
     setQAEmbedding(id, embedding);
   }
 
-  return { text: generated, source: 'generated', files: [], language: lang };
+  // Feature: source citation. Only for answers actually grounded in a document
+  // (not chat recaps, doc-work summaries, media reads, or general knowledge).
+  const citeDocId =
+    !aboutChat && !fromMedia && !wantsDocWork && knowledge.length
+      ? knowledge[0]?.document_id || null
+      : null;
+  const finalText = withSourceCitation(generated, citeDocId);
+
+  return { text: finalText, source: 'generated', files: [], language: lang };
 }
 
-module.exports = { answerQuestion, getBotMode, getPrivateChats, setPrivateChats, privateChatsEnabled };
+module.exports = {
+  answerQuestion,
+  getBotMode,
+  getPrivateChats,
+  setPrivateChats,
+  privateChatsEnabled,
+  getRepeatNudge,
+  setRepeatNudge,
+  getShowSources,
+  setShowSources,
+};
