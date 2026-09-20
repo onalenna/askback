@@ -1,7 +1,6 @@
-const { openai } = require('./embeddings');
+const { openai, CHAT_MODEL } = require('./embeddings');
 const { languageName } = require('./language');
 
-const MODEL = 'gpt-4o';
 const MAX_BYTES = 8 * 1024 * 1024;
 
 function usable(text) {
@@ -33,7 +32,7 @@ async function understandImage(buffer, mimetype, { caption = '', quoted = '', la
   if (quoted) parts.push('', 'They are replying to:', quoted);
 
   const completion = await openai.chat.completions.create({
-    model: MODEL,
+    model: CHAT_MODEL(),
     temperature: 0,
     messages: [
       {

@@ -285,8 +285,8 @@ function skipIncomingMention(jid, text, sock, extraSelf) {
 }
 
 /**
- * Asker, plus anyone their message replied to or @mentioned by number.
- * Never includes askBack itself — including its group LID, which is not the account LID.
+ * People to optionally notify: anyone the asker @mentioned by number, or replied to.
+ * Never includes askBack, and never includes the asker (the reply is already quoted to them).
  */
 function relatedMentionPeople(msg, sock, meta) {
   if (!msg?.key) return [];
@@ -296,34 +296,42 @@ function relatedMentionPeople(msg, sock, meta) {
   const extraSelf = extraSelfFor(sock, msg.key.remoteJid);
   const people = [];
   const key = msg.key;
-
-  addPerson(
-    people,
-    key.participant || key.participantLid || key.participantPn,
-    [key.participant, key.participantLid, key.participantPn, key.senderPn],
-    sock,
-    extraSelf
+  const askerIds = collectPersonIds(
+    key.participant,
+    key.participantLid,
+    key.participantPn,
+    key.senderPn
   );
+
+  const isAsker = (jid) => askerIds.some((id) => sameId(id, jid));
 
   const ctx = getContextInfo(msg);
   if (ctx) {
-    const quotedSelf = quotedIsFromMe(msg) || [ctx.participant, ctx.participantLid, ctx.participantPn].some((jid) => isSelf(sock, jid, extraSelf));
+    const quotedSelf =
+      quotedIsFromMe(msg) ||
+      [ctx.participant, ctx.participantLid, ctx.participantPn].some((jid) => isSelf(sock, jid, extraSelf));
     if (!quotedSelf) {
-      addPerson(
-        people,
-        ctx.participant || ctx.participantLid || ctx.participantPn,
-        [ctx.participant, ctx.participantLid, ctx.participantPn],
-        sock,
-        extraSelf
-      );
+      const quotedJid = ctx.participant || ctx.participantLid || ctx.participantPn;
+      if (quotedJid && !isAsker(quotedJid)) {
+        addPerson(
+          people,
+          quotedJid,
+          [ctx.participant, ctx.participantLid, ctx.participantPn],
+          sock,
+          extraSelf
+        );
+      }
     }
     for (const jid of ctx.mentionedJid || []) {
       if (skipIncomingMention(jid, text, sock, extraSelf)) continue;
+      if (isAsker(jid)) continue;
       addPerson(people, jid, [], sock, extraSelf);
     }
   }
 
-  return dropSelfPeople(people, sock, extraSelf).slice(0, MAX_TAGS);
+  return dropSelfPeople(people, sock, extraSelf)
+    .filter((person) => !isAsker(person.display) && !(person.ids || []).some(isAsker))
+    .slice(0, MAX_TAGS);
 }
 
 function relatedMentionJids(msg, sock, meta) {
@@ -376,13 +384,18 @@ function stripSelfTags(text, sock, extraSelf = []) {
   return body.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-function withMentions(text, jids, sock, chatJid) {
+function withMentions(text, jids, sock, chatJid, { notifyInText = false } = {}) {
   const extraSelf = extraSelfFor(sock, chatJid);
   const people = asPeople(jids, sock, extraSelf);
   const mentions = mentionJidList(people, sock, chatJid);
   const body = stripSelfTags(text, sock, extraSelf);
   if (!mentions.length) return body ? { text: body } : {};
   if (!body) return { mentions };
+  // Only put @numbers in the visible text when we intentionally need to ping someone
+  // (e.g. calling admins). Normal replies rely on the quoted message instead.
+  if (!notifyInText) {
+    return { text: body, mentions };
+  }
   const missing = mentionTokensForPeople(people).filter((tag) => !body.includes(tag));
   return {
     text: missing.length ? `${missing.join(' ')}\n${body}` : body,

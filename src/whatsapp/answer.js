@@ -2,10 +2,22 @@ const { getEmbedding } = require('../ai/embeddings');
 const { generateAnswer } = require('../ai/generator');
 const { searchAll } = require('../ai/search');
 const { statements, setQAEmbedding } = require('../db/queries');
-const { isShareRequest, pickFilesToShare } = require('./share');
-const { botHelpAnswer, greetingAnswer, isChitchat, isAboutChat, isDocSummaryRequest, isFollowUp, needsBroadKnowledge } = require('./intent');
+const { isShareRequest, isShareFollowUp, pickFilesToShare, shareAskText } = require('./share');
+const {
+  botHelpAnswer,
+  greetingAnswer,
+  isChitchat,
+  isCasualTalk,
+  isAboutChat,
+  isDocSummaryRequest,
+  isDocWorkRequest,
+  isTranslateRequest,
+  isFollowUp,
+  needsBroadKnowledge,
+  isKnowledgeAsk,
+} = require('./intent');
 const { formatChatContext } = require('./history');
-const { userAskLanguage } = require('../ai/language');
+const { resolveUserAskLanguage } = require('../ai/language');
 
 function getBotMode() {
   try {
@@ -38,38 +50,56 @@ function privateChatsEnabled() {
   return getPrivateChats() !== 'off';
 }
 
-function fileCaption(files, lang = 'en') {
-  if (!files.length) return '';
-  if (lang === 'fr') {
-    if (files.length === 1) return `Voici ${files[0].fileName}`;
-    return `Voici les fichiers : ${files.map((f) => f.fileName).join(', ')}`;
-  }
-  if (lang === 'es') {
-    if (files.length === 1) return `Aquí está ${files[0].fileName}`;
-    return `Aquí están los archivos: ${files.map((f) => f.fileName).join(', ')}`;
-  }
-  if (lang === 'pt') {
-    if (files.length === 1) return `Aqui está ${files[0].fileName}`;
-    return `Aqui estão os arquivos: ${files.map((f) => f.fileName).join(', ')}`;
-  }
-  if (lang === 'it') {
-    if (files.length === 1) return `Ecco ${files[0].fileName}`;
-    return `Ecco i file: ${files.map((f) => f.fileName).join(', ')}`;
-  }
-  if (lang === 'tn') {
-    if (files.length === 1) return `Fa ke ${files[0].fileName}`;
-    return `Tse ke difaele: ${files.map((f) => f.fileName).join(', ')}`;
-  }
-  if (files.length === 1) return `Here's ${files[0].fileName}`;
-  return `Here are the files: ${files.map((f) => f.fileName).join(', ')}`;
+function fileCaption(_files, _lang = 'en') {
+  // Attachments speak for themselves — never list long filenames in chat first
+  return '';
 }
 
 function knowledgeCount() {
   try {
-    return statements.allDocs.all().length;
+    return statements.allKnowledgeDocs.all().length;
   } catch {
-    return 0;
+    try {
+      return statements.allDocs.all().filter((d) => String(d.type) !== 'sticker').length;
+    } catch {
+      return 0;
+    }
   }
+}
+
+function looksUncertainAnswer(text) {
+  const t = String(text || '').toLowerCase();
+  if (!t) return true;
+  return (
+    /\b(i('m| am) not sure|not certain|i don't know|i do not know|no idea|cannot find|can't find|i think maybe|might be|possibly|unclear|i('m| am) unsure)\b/i.test(
+      t
+    ) || /\b(sorry,? i (don't|do not|can't|cannot))\b/i.test(t)
+  );
+}
+
+/** Bot should never interview people for their identity. */
+function looksLikeIdentityProbe(text) {
+  const t = String(text || '').toLowerCase();
+  if (!t) return false;
+  return (
+    /\b(what('?s| is) your name|who are you|may i (know|have) your name|tell me your name|can (i|you) (get|know|share|give) your name|your (full )?name\s*\?|what should i call you|introduce yourself)\b/i.test(
+      t
+    ) ||
+    /\b(comment (tu|vous) t'?appelles|comment vous appelez|quel est ton nom|comment tu t'?appelles)\b/i.test(t) ||
+    /\b(cómo te llamas|cuál es tu nombre|como te llamas)\b/i.test(t) ||
+    /\b(qual (é|e) (o )?seu nome|como (você|voce) se chama)\b/i.test(t) ||
+    /\b(come ti chiami|come ti chiama)\b/i.test(t) ||
+    /\b(leina la gago|o mang)\b/i.test(t)
+  );
+}
+
+function hasConfidentKnowledge(knowledge, { broad = false } = {}) {
+  if (!knowledge?.length) return false;
+  const top = Number(knowledge[0]?.score);
+  if (!Number.isFinite(top)) return true; // lexical-only hit still counts as a hit
+  // Untagged groups need a clearer match than private/tagged
+  const min = broad ? 0.42 : 0.5;
+  return top >= min;
 }
 
 function recapFallback(chatHistory) {
@@ -96,7 +126,7 @@ function searchBlob(question, quoted, chatHistory) {
   return parts.filter(Boolean).join('\n').slice(0, 2000);
 }
 
-function knowledgeForSummary(text) {
+function knowledgeForDocWork(text) {
   const docs = statements.allDocs.all().filter((doc) => Number(doc.chunk_count || 0) > 0);
   if (!docs.length) return [];
   const q = String(text || '').toLowerCase();
@@ -111,7 +141,7 @@ function knowledgeForSummary(text) {
     );
   });
   const pick = named || docs[0];
-  return statements.chunksByDoc.all(pick.id, 12).map((chunk) => ({
+  return statements.chunksByDoc.all(pick.id, 36).map((chunk) => ({
     document_id: chunk.document_id,
     content: chunk.content,
     score: 1,
@@ -134,6 +164,7 @@ async function answerQuestion(
     fromMedia = false,
     caption = '',
     language = '',
+    requireKnown = false,
   } = {}
 ) {
   if (getBotMode() === 'off') return null;
@@ -142,13 +173,16 @@ async function answerQuestion(
   if (!fromMedia) text = text.replace(/\s+/g, ' ').trim();
   if (!text) return null;
 
-  const lang = userAskLanguage(text, {
+  const lang = await resolveUserAskLanguage(text, {
     caption: fromMedia ? caption : '',
     hinted: language,
-  }) || (fromMedia ? 'en' : '');
+  });
+  if (lang) {
+    console.log(`[whatsapp] reply language: ${lang}`);
+  }
 
   const greet = greetingAnswer(text);
-  if (greet && (!isGroup || fromVoice) && !fromMedia) {
+  if (greet && (!isGroup || fromVoice) && !fromMedia && !requireKnown) {
     const englishGreet = /I'm askBack/.test(greet);
     if (!englishGreet || !lang || lang === 'en') {
       return { text: greet, source: 'help', files: [], language: lang || 'en' };
@@ -156,55 +190,106 @@ async function answerQuestion(
   }
 
   if (isChitchat(text) && !isAboutChat(text) && !fromVoice && !fromMedia) return null;
+  if (requireKnown && isCasualTalk(text) && !fromMedia) {
+    console.log('[whatsapp] untagged group — casual talk, staying silent');
+    return null;
+  }
 
   const help = botHelpAnswer(text, lang);
-  if (help) return { text: help, source: 'help', files: [], language: lang };
+  if (help && !requireKnown) return { text: help, source: 'help', files: [], language: lang };
 
   const baseMax = parseInt(process.env.MAX_QUESTION_LENGTH || '2000', 10);
-  const maxLen = fromMedia ? Math.max(baseMax, 8000) : baseMax;
+  const maxLen = fromMedia ? Math.max(baseMax, 35000) : baseMax;
   if (text.length > maxLen) text = text.slice(0, maxLen);
   const aboutChat = fromMedia ? false : isAboutChat(text);
-  const chatContext = fromMedia
+  // Untagged group: skip chat-recap asks — those still need a tag
+  if (requireKnown && aboutChat) {
+    console.log('[whatsapp] untagged recap ask — staying silent (tag me for chat recaps)');
+    return null;
+  }
+
+  const askForShare = shareAskText(caption || text) || shareAskText(text) || text;
+  const wantsShare =
+    isShareRequest(text) ||
+    isShareRequest(askForShare) ||
+    isShareFollowUp(askForShare, chatHistory, chatJid) ||
+    isShareFollowUp(text, chatHistory, chatJid);
+  const wantsDocSummary = isDocSummaryRequest(askForShare) || isDocSummaryRequest(text);
+  const wantsTranslate = isTranslateRequest(askForShare) || isTranslateRequest(text);
+  const wantsDocWork = isDocWorkRequest(askForShare) || isDocWorkRequest(text) || wantsDocSummary || wantsTranslate;
+
+  // File/media asks must search the library even when the user also quoted another attachment
+  const hasDocs = knowledgeCount() > 0 && (!fromMedia || wantsShare);
+
+  const chatContext = fromMedia && !wantsShare
     ? ''
     : formatChatContext((chatHistory || []).slice(aboutChat ? -120 : -40));
-  const hasDocs = !fromMedia && knowledgeCount() > 0;
 
-  const wantsShare = isShareRequest(text);
-  const wantsDocSummary = isDocSummaryRequest(text);
+  // Untagged group: only knowledge / materials asks — do not jump into chat
+  if (
+    requireKnown &&
+    !fromMedia &&
+    !wantsShare &&
+    !wantsDocWork &&
+    !isKnowledgeAsk(text) &&
+    !isKnowledgeAsk(askForShare)
+  ) {
+    console.log('[whatsapp] untagged group — not a knowledge ask, staying silent');
+    return null;
+  }
   let embedding = null;
   let repeated = [];
   let knowledge = [];
-  if (wantsDocSummary && hasDocs) {
-    knowledge = knowledgeForSummary(text);
+  if (wantsDocWork && hasDocs && !wantsShare) {
+    knowledge = knowledgeForDocWork(text);
     if (!knowledge.length) {
+      if (requireKnown) {
+        console.log('[whatsapp] untagged doc ask — no document, staying silent');
+        return null;
+      }
       return {
-        text: 'I do not have a document loaded to summarize yet. Add one on Knowledge, then ask again.',
+        text: 'I do not have a document loaded yet. Add one on Knowledge, then ask again.',
         source: 'help',
         files: [],
         language: lang || 'en',
       };
     }
+  } else if (wantsDocWork && requireKnown && !wantsShare) {
+    console.log('[whatsapp] untagged doc ask — no knowledge docs, staying silent');
+    return null;
   } else if (hasDocs) {
     // Always search generously — groups used to use a stricter threshold and
     // missed the same knowledge that private chats found (e.g. class links).
-    const broad = needsBroadKnowledge(text);
-    embedding = await getEmbedding(searchBlob(text, quoted, chatHistory));
+    const broad = needsBroadKnowledge(askForShare) || needsBroadKnowledge(text) || wantsShare;
+    const searchText = wantsShare ? askForShare : searchBlob(text, quoted, chatHistory);
+    embedding = await getEmbedding(searchText);
     ({ repeated, knowledge } = searchAll(embedding, {
-      loose: true,
-      query: text,
+      loose: !requireKnown || wantsShare,
+      query: wantsShare ? askForShare : text,
       limit: broad ? 18 : undefined,
     }));
-    if (!knowledge.length) {
+    if (!knowledge.length && (!requireKnown || wantsShare)) {
       ({ repeated, knowledge } = searchAll(embedding, {
         loose: true,
-        query: searchBlob(text, quoted, chatHistory),
+        query: wantsShare ? askForShare : searchBlob(text, quoted, chatHistory),
         limit: 18,
       }));
     }
   }
-  const files = wantsShare ? pickFilesToShare(text, { knowledge, repeated, wantsShare: true }) : [];
+  const files = wantsShare
+    ? pickFilesToShare(askForShare || text, {
+        knowledge,
+        repeated,
+        wantsShare: true,
+        chatHistory,
+        chatJid,
+      })
+    : [];
 
   if (wantsShare && files.length) {
+    console.log(
+      `[whatsapp] sharing file(s): ${files.map((f) => f.fileName).join(', ')}`
+    );
     return {
       text: fileCaption(files, lang),
       source: 'share',
@@ -213,12 +298,27 @@ async function answerQuestion(
     };
   }
 
+  if (wantsShare && !files.length) {
+    if (requireKnown) {
+      console.log('[whatsapp] media ask — no attachable file found, staying silent');
+      return null;
+    }
+    return {
+      text: "I couldn't find that file stored for sending. Re-upload it on Knowledge, then ask me to send it again.",
+      source: 'help',
+      files: [],
+      language: lang || 'en',
+    };
+  }
+
   // Reuse a strong prior answer even in busy group chats.
   // Also allow this for link/class questions so a private answer is not lost in-group.
+  // Never short-circuit media/share asks — those must attach files.
   if (
     repeated.length &&
     !aboutChat &&
     !fromMedia &&
+    !wantsShare &&
     !isFollowUp(text) &&
     (lang === 'en' || !lang) &&
     Number(repeated[0]?.score || 0) >= (needsBroadKnowledge(text) ? 0.9 : 0.88)
@@ -233,13 +333,20 @@ async function answerQuestion(
     };
   }
 
+  const broad = needsBroadKnowledge(text) || wantsShare;
+  if (requireKnown && !hasConfidentKnowledge(knowledge, { broad }) && !repeated.length) {
+    console.log('[whatsapp] untagged group ask — not sure enough, staying silent');
+    return null;
+  }
+
   console.log(
-    `[whatsapp] answering in ${lang || 'the question language'}${fromMedia ? ' (from media)' : wantsDocSummary ? ' (doc summary)' : ''}${isGroup ? ' (group)' : ''}${knowledge.length ? ` kb=${knowledge.length}` : ' kb=0'}`
+    `[whatsapp] answering in ${lang || 'the question language'}${fromMedia ? ' (from media)' : wantsTranslate ? ' (doc translate)' : wantsDocSummary ? ' (doc summary)' : wantsDocWork ? ' (doc work)' : ''}${isGroup ? ' (group)' : ''}${knowledge.length ? ` kb=${knowledge.length}` : ' kb=0'}${requireKnown ? ' known-only' : ''}`
   );
   // For knowledge questions, keep only a light slice of live chat so group noise
   // does not drown uploaded material (class links, forms, etc.).
+  // Untagged known-only: no live chat — avoid guessing from group noise.
   const promptChat =
-    wantsDocSummary || fromMedia
+    wantsDocWork || fromMedia || requireKnown
       ? ''
       : aboutChat
         ? chatContext
@@ -249,19 +356,36 @@ async function answerQuestion(
   const generated = (
     await generateAnswer(text, knowledge, {
       chatContext: promptChat,
-      quoted,
-      aboutChat: wantsDocSummary ? false : aboutChat,
+      quoted: requireKnown ? '' : quoted,
+      aboutChat: wantsDocWork || requireKnown ? false : aboutChat,
       fromMedia,
       fromVoice,
-      summarizeDoc: wantsDocSummary,
+      summarizeDoc: wantsDocSummary && !wantsTranslate,
+      translateDoc: wantsTranslate,
+      docWork: wantsDocWork && !wantsDocSummary && !wantsTranslate,
       language: lang,
+      requireKnown,
+      isGroup,
     })
   ).trim();
-  if (!generated || generated.includes('BOT_NO_ANSWER')) {
-    if (aboutChat) {
+  if (
+    !generated ||
+    generated.includes('BOT_NO_ANSWER') ||
+    looksLikeIdentityProbe(generated) ||
+    (requireKnown && looksUncertainAnswer(generated))
+  ) {
+    if (looksLikeIdentityProbe(generated)) {
+      console.log('[whatsapp] blocked identity-probe reply — staying silent');
+      return null;
+    }
+    if (aboutChat && !requireKnown) {
       return { text: recapFallback(chatHistory), source: 'generated', files: [], language: lang || 'en' };
     }
-    console.log('[whatsapp] did not understand — staying silent');
+    console.log(
+      requireKnown
+        ? '[whatsapp] untagged group — unsure, staying silent'
+        : '[whatsapp] did not understand — staying silent'
+    );
     return null;
   }
 

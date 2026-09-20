@@ -4,7 +4,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { extractTextFromPdf } = require('./pdf');
 
-const MAX_TEXT = 12000;
+const MAX_TEXT = 40000;
 
 function isPlainText(filename, mimetype) {
   const ext = path.extname(filename || '').toLowerCase();

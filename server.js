@@ -55,6 +55,15 @@ const server = app.listen(PORT, HOST, () => {
     console.log(`Public path: ${BASE || '/'} (user ${adminUser()})`);
   }
   console.log('Starting WhatsApp client (private + group)…');
+  try {
+    const { syncStickersLibrary } = require('./src/stickers/library');
+    const synced = syncStickersLibrary();
+    console.log(
+      `[stickers] library ${synced.dir} — ${synced.total} file(s)${synced.added ? `, +${synced.added} new` : ''} (replies off)`
+    );
+  } catch (err) {
+    console.warn('[stickers] could not sync library:', err.message || err);
+  }
   startWhatsApp().catch((err) => {
     console.error('Failed to start WhatsApp:', err.message || err);
   });

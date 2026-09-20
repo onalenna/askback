@@ -44,6 +44,23 @@ const CHITCHAT = new Set([
   'obrigada',
   'grazie',
   'prego',
+  'got it',
+  'makes sense',
+  'sounds good',
+  'will do',
+  'on it',
+  'nice',
+  'great',
+  'perfect',
+  'same',
+  'me too',
+  'true',
+  'exactly',
+  'indeed',
+  'fair',
+  'bet',
+  'done',
+  'checked',
 ]);
 
 function isChitchat(text) {
@@ -54,13 +71,66 @@ function isChitchat(text) {
   return CHITCHAT.has(t);
 }
 
+/** Short acknowledgements / status updates — not questions for the bot. */
+function isCasualTalk(text) {
+  const t = String(text || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[.!,…]+$/g, '')
+    .trim();
+  if (!t || t.includes('?')) return false;
+  if (isChitchat(t)) return true;
+  if (t.length > 160) return false;
+  if (
+    /^(will check|i('ll| will) check|checking( it)?( out)?|got it|sounds good|makes sense|fair enough|noted|on it|will do|i('ll| will) (do|look|see|check|try)|looking into|coming|same here|me too|true that|exactly|indeed|bet|done|checked|will look|i see|ah ok|ah okay|right|yep|yup|cool cool|nice one|well said|agree|agreed|same)\b/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  // Status / feedback to the group, not an ask for the bot
+  if (
+    /^(hi|hey|hello|hiya)\b.{0,24}\b(team|guys|all|everyone|folks)\b/i.test(t) &&
+    !/\b(who|what|when|where|why|how|which|can you|could you|please|anyone)\b/i.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function isDocSummaryRequest(text) {
   const t = String(text || '').replace(/\s+/g, ' ').trim();
   if (!t) return false;
-  if (!/\b(summar(y|ise|ize)|overview|tl;dr|tldr|key points|main points)\b/i.test(t)) return false;
-  if (/\b(document|file|pdf|doc|paper|report|notes?|attachment)\b/i.test(t)) return true;
+  if (!/\b(summar(y|ise|ize)|overview|tl;dr|tldr|key points|main points|brief me|recap (the|this) (doc|file|pdf|document))\b/i.test(t)) {
+    return false;
+  }
+  if (/\b(document|file|pdf|doc|paper|report|notes?|attachment|media|this)\b/i.test(t)) return true;
   if (/\b(chat|group|conversation|messages?|thread)\b/i.test(t)) return false;
   return true;
+}
+
+function isTranslateRequest(text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!t) return false;
+  return /\b(translate|translation|traduis|traduire|traduction|traduce|traducir|traducción|übersetz|ubersetz)\b/i.test(
+    t
+  );
+}
+
+/** Summary, translation, explain, extract — work on a document/file. */
+function isDocWorkRequest(text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!t) return false;
+  if (isDocSummaryRequest(t) || isTranslateRequest(t)) return true;
+  if (
+    /\b(explain|analyse|analyze|extract|read|what does (this|it|the) (say|mean)|tell me (about|what)|go through)\b/i.test(
+      t
+    ) &&
+    /\b(document|file|pdf|doc|paper|report|attachment|this|it)\b/i.test(t)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function isAboutChat(text) {
@@ -69,7 +139,7 @@ function isAboutChat(text) {
   if (/\b(photo|image|picture|pic|pics|screenshot|this photo|this image|this picture)\b/i.test(t)) {
     return false;
   }
-  if (isDocSummaryRequest(t)) return false;
+  if (isDocSummaryRequest(t) || isDocWorkRequest(t) || isTranslateRequest(t)) return false;
   return (
     /\b(recap|last message|previous message|in this (group|chat)|on (this|the) group|what has been discussed|what'?s been discussed|whats been discussed|since (the group|we) started|from the (start|beginning)|so far in (the|this) (chat|group))\b/i.test(
       t
@@ -106,17 +176,109 @@ function needsBroadKnowledge(text) {
 function looksLikeQuestion(text) {
   const t = String(text || '').replace(/\s+/g, ' ').trim();
   if (!t) return false;
-  if (isChitchat(t)) return false;
+  if (isChitchat(t) || isCasualTalk(t)) return false;
   if (t.includes('?')) return true;
   if (isAboutChat(t)) return true;
+  if (isDocSummaryRequest(t)) return true;
+  if (isDocWorkRequest(t)) return true;
+  // Media / file asks should wake the bot even without a tag
   if (
-    /^(who|what|whats|when|where|why|how|which|can|could|would|will|is|are|do|does|did|should|please|tell|explain|send|share|give|repeat|recap|remind|summarise|summarize|qui|que|quoi|quand|où|ou|pourquoi|comment|peux|peut|est-ce|quién|quien|qué|cuando|cuándo|dónde|donde|por qué|porque|cómo|como|quem|quando|onde|chi|cosa|dove|perché|perche|a o|o ka|ke kopa|naa)\b/i.test(
+    /\b(send|share|attach|give)\b/i.test(t) &&
+    /\b(file|files|pdf|photo|photos|image|images|pic|pics|media|document|recording|audio|video|slide|slides)\b/i.test(
       t
     )
   ) {
     return true;
   }
-  if (/\b(who|what|when|where|why|how|which)\b/i.test(t) && t.split(' ').length >= 3) {
+  // Direct requests to someone (often the bot when tagged)
+  if (/\b(can you|could you|would you|will you|do you|does anyone|anyone know|has anyone|is there|are there)\b/i.test(t)) {
+    return true;
+  }
+  if (/\b(please)\b/i.test(t) && /\b(send|share|give|tell|explain|remind|recap|summar)/i.test(t)) {
+    return true;
+  }
+  // Interrogative starters only — not bare will/is/are/can (those catch statements like "will check it out")
+  if (
+    /^(who|what|whats|what's|when|where|why|how|which|please|tell|explain|send|share|give|repeat|recap|remind|summarise|summarize|qui|que|quoi|quand|où|ou|pourquoi|comment|peux-tu|peut-on|est-ce|quién|quien|qué|cuando|cuándo|dónde|donde|por qué|porque|cómo|como|quem|quando|onde|chi|cosa|dove|perché|perche|a o|o ka|ke kopa|naa)\b/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  if (/\b(who|what|when|where|why|how|which)\b/i.test(t) && t.split(/\s+/).length >= 4) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Stricter gate for untagged group messages: only clear asks, not casual chat.
+ * Tagged messages still use looksLikeQuestion / full answer path.
+ */
+function looksLikeClearQuestion(text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!t) return false;
+  if (isChitchat(t) || isCasualTalk(t)) return false;
+  // A lone "?" is not enough in groups — too many rhetorical / human-to-human lines
+  if (isKnowledgeAsk(t)) return true;
+  if (isAboutChat(t) || isDocSummaryRequest(t) || isDocWorkRequest(t) || isTranslateRequest(t)) {
+    return true;
+  }
+  if (
+    /\b(can you|could you|would you|will you|do you know|does anyone|anyone know|has anyone)\b/i.test(t) &&
+    t.split(/\s+/).length >= 4
+  ) {
+    return true;
+  }
+  if (
+    /^(who|what|whats|what's|when|where|why|how|which|qui|que|quoi|quand|où|pourquoi|comment|est-ce|quién|qué|cuándo|dónde|como|quando|onde|chi|cosa|dove|perché|a o|ke kopa)\b/i.test(
+      t
+    ) &&
+    t.includes('?')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Untagged group: only answer if this is clearly a knowledge / materials ask.
+ * People chatting (even with "?" or "why/when" in a sentence) should not wake the bot.
+ */
+function isKnowledgeAsk(text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!t || isChitchat(t) || isCasualTalk(t)) return false;
+  if (isDocWorkRequest(t) || isDocSummaryRequest(t) || isTranslateRequest(t)) return true;
+
+  const wantsFile =
+    /\b(send|share|attach|give|envoie|envoy[ée]s?|envoyer|manda|env[ií]a|passe[- ]moi|envoie[- ]moi|m[' ]envoyer|peux|pouvez)\b/i.test(
+      t
+    ) &&
+    /\b(file|files|pdf|photo|photos|image|images|pic|pics|media|document|recording|audio|video|slide|slides|link|links|guide|guidelines?|fichier|fichiers|documento|archivos?)\b/i.test(
+      t
+    );
+  if (wantsFile) return true;
+
+  const topic =
+    /\b(deadline|deadlines|due date|due dates|schedule|schedules|timetable|zoom|meet(ing)?s?|class(es)?|recording|recordings|slides?|materials?|resources?|form(s)?|assignment(s)?|homework|hackathon|link|links|url|urls|drive|docs?)\b/i.test(
+      t
+    );
+  if (!topic) return false;
+
+  // Must look like an ask about those materials — not a status update that happens to mention them
+  if (t.includes('?')) return true;
+  if (
+    /\b(where (is|are|can)|what('?s| is) the|is there|are there|do we have|do i (need|have)|can you|could you|please (send|share|give)|how (do|can|to)|when (is|are|do)|which)\b/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  if (
+    /^(where|what|whats|what's|when|is there|are there|how|which|can you|could you|please|envoie|send|share)\b/i.test(
+      t
+    )
+  ) {
     return true;
   }
   return false;
@@ -223,11 +385,16 @@ function botHelpAnswer(text, lang) {
 
 module.exports = {
   looksLikeQuestion,
+  looksLikeClearQuestion,
+  isKnowledgeAsk,
   looksLikeSameQuestion,
   isChitchat,
+  isCasualTalk,
   isFollowUp,
   isAboutChat,
   isDocSummaryRequest,
+  isTranslateRequest,
+  isDocWorkRequest,
   needsBroadKnowledge,
   botHelpAnswer,
   greetingAnswer,

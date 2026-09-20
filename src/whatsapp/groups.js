@@ -159,34 +159,41 @@ async function sendGroupText(sock, jid, text, { asVoice = false } = {}) {
   }
 
   let sent = null;
-  if (asVoice) {
-    const { ttsConfigured, splitForVoice } = require('../ai/tts');
-    if (!ttsConfigured()) {
-      throw new Error('Voice notes need a Lemonfox API key in .env.');
-    }
-    const { sendVoiceReply } = require('./voice');
-    const { spoken, links } = splitForVoice(body);
-    if (spoken) {
-      sent = await sendVoiceReply(sock, id, spoken, null, [], '');
-      if (!sent) throw new Error('Could not send the voice note. Try text, or check Lemonfox.');
-      rememberOutbound(id, sent, spoken);
-      if (links.length) {
+  const { startChatPresence } = require('./presence');
+  const presence = startChatPresence(sock, id, asVoice ? 'recording' : 'composing');
+  try {
+    if (asVoice) {
+      const { ttsConfigured, splitForVoice } = require('../ai/tts');
+      if (!ttsConfigured()) {
+        throw new Error('Voice notes need a Lemonfox API key in .env.');
+      }
+      const { sendVoiceReply } = require('./voice');
+      const { spoken, links } = splitForVoice(body);
+      if (spoken) {
+        sent = await sendVoiceReply(sock, id, spoken, null, [], '');
+        if (!sent) throw new Error('Could not send the voice note. Try text, or check Lemonfox.');
+        rememberOutbound(id, sent, spoken);
+        if (links.length) {
+          const { formatLinksMessage } = require('../ai/tts');
+          const linkBody = formatLinksMessage(links);
+          await presence.setMode('composing');
+          const linkSent = await sock.sendMessage(id, { text: linkBody });
+          rememberOutbound(id, linkSent, linkBody);
+        }
+      } else if (links.length) {
         const { formatLinksMessage } = require('../ai/tts');
         const linkBody = formatLinksMessage(links);
-        const linkSent = await sock.sendMessage(id, { text: linkBody });
-        rememberOutbound(id, linkSent, linkBody);
+        sent = await sock.sendMessage(id, { text: linkBody });
+        rememberOutbound(id, sent, linkBody);
+      } else {
+        throw new Error('Nothing to send after removing links.');
       }
-    } else if (links.length) {
-      const { formatLinksMessage } = require('../ai/tts');
-      const linkBody = formatLinksMessage(links);
-      sent = await sock.sendMessage(id, { text: linkBody });
-      rememberOutbound(id, sent, linkBody);
     } else {
-      throw new Error('Nothing to send after removing links.');
+      sent = await sock.sendMessage(id, { text: body });
+      rememberOutbound(id, sent, body);
     }
-  } else {
-    sent = await sock.sendMessage(id, { text: body });
-    rememberOutbound(id, sent, body);
+  } finally {
+    await presence.stop().catch(() => {});
   }
 
   return {

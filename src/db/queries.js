@@ -44,6 +44,12 @@ const statements = {
   ),
   getDoc: db.prepare(`SELECT * FROM documents WHERE id = ?`),
   allDocs: db.prepare(`SELECT * FROM documents ORDER BY created_at DESC`),
+  allKnowledgeDocs: db.prepare(
+    `SELECT * FROM documents WHERE type != 'sticker' ORDER BY created_at DESC`
+  ),
+  allStickers: db.prepare(
+    `SELECT * FROM documents WHERE type = 'sticker' ORDER BY created_at DESC`
+  ),
   deleteDoc: db.prepare(`DELETE FROM documents WHERE id = ?`),
 
   insertChunk: db.prepare(

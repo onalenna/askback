@@ -1,7 +1,5 @@
-const { openai } = require('./embeddings');
+const { openai, CHAT_MODEL } = require('./embeddings');
 const { languageName } = require('./language');
-
-const MODEL = 'gpt-4o';
 const HALLUCINATIONS = [
   'thank you for watching',
   'thanks for watching',
@@ -44,6 +42,7 @@ async function interpretVoiceTranscript(transcript, { chatContext = '', quoted =
     'This is a WhatsApp voice note, transcribed automatically.',
     'Write the speaker\'s request as a clear question or instruction in the same language they used.',
     'Fix obvious transcription mistakes using the chat if that helps.',
+    'If they ask to send, share, show, or attach a file, photo, image, media, PDF, or document, keep those exact verbs and nouns so the bot can attach the file.',
     langLine,
     'Do not translate into English unless they spoke English.',
     'If the transcript is real speech, rewrite it clearly. If it is empty or only noise, reply exactly BOT_NO_ANSWER.',
@@ -59,7 +58,7 @@ async function interpretVoiceTranscript(transcript, { chatContext = '', quoted =
   }
 
   const completion = await openai.chat.completions.create({
-    model: MODEL,
+    model: CHAT_MODEL(),
     temperature: 0,
     messages: [
       {

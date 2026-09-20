@@ -1,5 +1,5 @@
 const fs = require('fs');
-const { openai } = require('../ai/embeddings');
+const { getWhisperClient } = require('../ai/embeddings');
 const { chunkText } = require('./chunking');
 
 function whisperLanguage() {
@@ -27,7 +27,7 @@ async function transcribeAudioDetailed(source, { prompt = '', language } = {}) {
   const lang = language || whisperLanguage();
   if (lang) params.language = lang;
   if (prompt) params.prompt = String(prompt).slice(0, 800);
-  const response = await openai.audio.transcriptions.create(params);
+  const response = await getWhisperClient().audio.transcriptions.create(params);
   return {
     text: String(response.text || '').trim(),
     language: response.language || '',

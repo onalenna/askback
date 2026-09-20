@@ -173,7 +173,7 @@ async function extractUpcomingEvents() {
   if (!knowledge && !chat) return [];
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o',
+    model: require('../ai/embeddings').CHAT_MODEL(),
     temperature: 0.1,
     response_format: { type: 'json_object' },
     messages: [

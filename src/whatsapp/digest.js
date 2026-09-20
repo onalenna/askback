@@ -149,7 +149,7 @@ async function composeDigest({
     : '(nothing found about deadlines or expectations)';
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o',
+    model: require('../ai/embeddings').CHAT_MODEL(),
     temperature: 0.35,
     messages: [
       {

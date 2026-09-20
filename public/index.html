@@ -45,7 +45,7 @@
 
     <section class="card" id="knowledge" role="tabpanel" aria-labelledby="tab-knowledge">
       <h2>Knowledge</h2>
-      <p class="hint">Upload one or more files: WhatsApp chat exports (<code>.txt</code> or zip with media), PDFs, images, Word/Excel/PowerPoint, or audio. Give a shared name (e.g. Group photos). Each selected file is added to Knowledge.</p>
+      <p class="hint">Upload one or more files: WhatsApp chat exports (<code>.txt</code> or zip with media), PDFs, images, Word/Excel/PowerPoint, or audio. Stickers have their own section below.</p>
       <form id="upload-form" class="upload-form">
         <label class="field name-field">
           <span>Name</span>
@@ -74,6 +74,41 @@
       </form>
       <p id="upload-status" class="hint"></p>
       <ul id="docs" class="file-list"></ul>
+      <nav id="docs-pager" class="list-pager" hidden aria-label="Knowledge files pages"></nav>
+
+      <div class="subsection" id="stickers-section">
+        <h3>Stickers</h3>
+        <p class="hint">Loaded from the <code>stickers/</code> folder in the project. Drop <code>.webp</code> / <code>.png</code> files there (or upload below). Name them clearly, e.g. <code>friend.png</code>, <code>thanks.webp</code>.</p>
+        <form id="sticker-form" class="upload-form">
+          <label class="field name-field">
+            <span>Pack name</span>
+            <input
+              type="text"
+              id="sticker-title"
+              name="title"
+              placeholder="e.g. Friendly pack"
+              maxlength="120"
+              autocomplete="off"
+              required
+            />
+          </label>
+          <label class="file-pick">
+            <input
+              type="file"
+              id="sticker-file"
+              name="file"
+              accept=".webp,.png,.jpg,.jpeg,.gif,image/webp,image/png,image/jpeg,image/gif"
+              multiple
+              required
+            />
+            <span id="sticker-file-label">Choose stickers</span>
+          </label>
+          <button type="submit">Add stickers</button>
+        </form>
+        <p id="sticker-status" class="hint"></p>
+        <ul id="stickers" class="file-list sticker-list"></ul>
+        <nav id="stickers-pager" class="list-pager" hidden aria-label="Sticker pages"></nav>
+      </div>
 
       <div class="subsection">
         <h3>Send to a group</h3>
@@ -206,6 +241,7 @@
     <section class="card" id="activity" role="tabpanel" aria-labelledby="tab-activity" hidden>
       <h2>Activity</h2>
       <ul id="qa" class="qa-list"></ul>
+      <nav id="qa-pager" class="list-pager" hidden aria-label="Activity pages"></nav>
     </section>
   </main>
 

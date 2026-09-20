@@ -4,7 +4,7 @@ const express = require('express');
 const multer = require('multer');
 const { statements } = require('../db/queries');
 const db = require('../db');
-const { ingestFile, replaceFile, unlinkQuiet } = require('../processor/ingest');
+const { ingestFile, ingestSticker, replaceFile, unlinkQuiet } = require('../processor/ingest');
 const { openChatExport, readChatText, parseChatTranscript, looksLikeChat } = require('../processor/text');
 const { isKnowledgeOnly } = require('../whatsapp/share');
 const { resolveUploadType, detectType } = require('../processor/filetype');
@@ -26,6 +26,7 @@ const {
   restartDeadlineReminders,
   refreshUpcoming,
 } = require('../whatsapp/reminders');
+const { syncStickersLibrary } = require('../stickers/library');
 
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -52,18 +53,77 @@ function publicDoc(doc) {
   if (!doc) return null;
   const { file_path, ...rest } = doc;
   const onDisk = !!(file_path && fs.existsSync(file_path));
+  const sticker = String(doc.type || '').toLowerCase() === 'sticker';
   return {
     ...rest,
-    sharable: !isKnowledgeOnly(doc) && onDisk,
+    sticker,
+    sharable: sticker ? onDisk : !isKnowledgeOnly(doc) && onDisk,
     downloadable: onDisk,
-    viewable: Number(doc.chunk_count) > 0 || onDisk,
+    viewable: sticker ? onDisk : Number(doc.chunk_count) > 0 || onDisk,
   };
+}
+
+function isKnowledgeListDoc(doc) {
+  if (!doc) return false;
+  if (String(doc.type || '').toLowerCase() === 'sticker') return false;
+  // Chat-export stickers stay out of the main Knowledge list
+  const name = `${doc.filename || ''} ${doc.title || ''}`;
+  if (/\bSTICKER[-_]/i.test(name)) return false;
+  return true;
 }
 
 const MAX_PREVIEW_MESSAGES = 2500;
 const MAX_PREVIEW_CHARS = 400000;
 
+function attachmentIndex() {
+  const map = Object.create(null);
+  for (const doc of statements.allDocs.all()) {
+    if (!doc?.file_path || !fs.existsSync(doc.file_path)) continue;
+    const base = path.basename(String(doc.filename || '')).toLowerCase();
+    if (base) map[base] = doc.id;
+    // Chat exports often use "TITLE - 00003962-STICKER-....webp"
+    const m = base.match(/(\d{5,}-sticker-[a-z0-9._-]+\.(?:webp|png|jpe?g|gif))$/i);
+    if (m) map[m[1].toLowerCase()] = doc.id;
+  }
+  return map;
+}
+
+function collectAttachmentNames(text, messages) {
+  const names = new Set();
+  const re = /\[([^\]]*)\]\(attachment:\/\/([^)\s]+)\)/gi;
+  const scan = (src) => {
+    const s = String(src || '');
+    let match;
+    while ((match = re.exec(s))) {
+      const name = path.basename(String(match[2] || '').trim());
+      if (name) names.add(name);
+    }
+  };
+  scan(text);
+  for (const msg of messages || []) scan(msg?.text);
+  return [...names];
+}
+
 function documentPreview(doc) {
+  const type = String(doc.type || '').toLowerCase();
+  const onDisk = !!(doc.file_path && fs.existsSync(doc.file_path));
+
+  // Stickers / images: show the media itself, not OCR / chunk text
+  if ((type === 'sticker' || type === 'image') && onDisk) {
+    return {
+      id: doc.id,
+      title: doc.title || doc.filename,
+      filename: doc.filename,
+      type: doc.type,
+      kind: type === 'sticker' ? 'sticker' : 'image',
+      messages: [],
+      text: '',
+      truncated: false,
+      mediaUrl: `/api/documents/${doc.id}/file`,
+      attachments: {},
+    };
+  }
+
   const chunks = statements.allChunksByDoc.all(doc.id);
   let text = chunks.map((chunk) => chunk.content).join('\n');
   if (doc.type === 'text' && doc.file_path && fs.existsSync(doc.file_path)) {
@@ -81,6 +141,13 @@ function documentPreview(doc) {
   const chat = looksLikeChat(doc.filename, doc.title, parsed);
   const messages = chat ? parsed.slice(0, MAX_PREVIEW_MESSAGES) : [];
 
+  const index = attachmentIndex();
+  const attachments = {};
+  for (const name of collectAttachmentNames(text, messages)) {
+    const id = index[name.toLowerCase()] || index[path.basename(name).toLowerCase()];
+    if (id) attachments[name] = id;
+  }
+
   return {
     id: doc.id,
     title: doc.title || doc.filename,
@@ -90,6 +157,8 @@ function documentPreview(doc) {
     messages,
     text: chat ? '' : text,
     truncated: truncated || messages.length < parsed.length,
+    mediaUrl: '',
+    attachments,
   };
 }
 
@@ -157,7 +226,77 @@ function createAdminRouter() {
   });
 
   router.get('/api/documents', (_req, res) => {
-    res.json(statements.allDocs.all().map(publicDoc));
+    res.json(statements.allKnowledgeDocs.all().filter(isKnowledgeListDoc).map(publicDoc));
+  });
+
+  router.get('/api/stickers', (_req, res) => {
+    try {
+      syncStickersLibrary();
+    } catch (err) {
+      console.warn('[admin] sticker sync:', err.message || err);
+    }
+    res.json(statements.allStickers.all().map(publicDoc));
+  });
+
+  router.post('/api/stickers/sync', (_req, res) => {
+    try {
+      const result = syncStickersLibrary();
+      res.json({
+        ...result,
+        stickers: statements.allStickers.all().map(publicDoc),
+      });
+    } catch (err) {
+      console.error('[admin] sticker sync failed:', err.message || err);
+      res.status(500).json({ error: err.message || 'Sync failed' });
+    }
+  });
+
+  router.post('/api/stickers', upload.array('file', 40), async (req, res) => {
+    const files = req.files || [];
+    if (!files.length) {
+      return res.status(400).json({ error: 'No sticker files selected' });
+    }
+
+    const packTitle = sanitizeTitle(req.body?.title) || 'Stickers';
+    const multi = files.length > 1;
+    const added = [];
+    const errors = [];
+
+    try {
+      for (const file of files) {
+        const displayName = sanitizeDisplayName(file.originalname) || 'sticker.webp';
+        const stem = displayName.replace(/\.[^.]+$/, '') || displayName;
+        const label = multi ? `${packTitle} - ${stem}`.slice(0, 120) : sanitizeTitle(req.body?.title) || stem;
+        try {
+          added.push(await ingestSticker(file.path, displayName, label));
+        } catch (err) {
+          console.error('[admin] sticker ingest failed:', err.message || err);
+          errors.push({ filename: file.originalname, error: err.message || 'Ingest failed' });
+        } finally {
+          unlinkQuiet(file.path);
+        }
+      }
+      if (!added.length) {
+        return res.status(400).json({
+          error: errors[0]?.error || 'Could not add any stickers.',
+          errors,
+        });
+      }
+      res.json({
+        added: added.map((item) => ({
+          id: item.id,
+          filename: item.filename,
+          title: item.title,
+          type: 'sticker',
+          chunkCount: 0,
+        })),
+        errors: errors.length ? errors : undefined,
+      });
+    } catch (err) {
+      for (const file of files) unlinkQuiet(file.path);
+      console.error('[admin] sticker upload failed:', err.message || err);
+      res.status(500).json({ error: err.message || 'Upload failed' });
+    }
   });
 
   router.get('/api/qa', (_req, res) => {
@@ -450,14 +589,32 @@ function createAdminRouter() {
     if (!doc?.file_path || !fs.existsSync(doc.file_path)) {
       return res.status(404).json({ error: 'Original file is not stored. Re-upload it.' });
     }
-    const ext = path.extname(doc.filename || '');
+    const abs = path.resolve(doc.file_path);
+    const mime = String(doc.mime_type || '').toLowerCase();
+    const ext = path.extname(doc.filename || abs).toLowerCase();
+    const inline =
+      String(doc.type || '').toLowerCase() === 'sticker' ||
+      String(doc.type || '').toLowerCase() === 'image' ||
+      mime.startsWith('image/') ||
+      /\.(webp|png|jpe?g|gif)$/i.test(ext);
+
+    if (inline) {
+      if (mime) res.type(mime);
+      else if (ext === '.webp') res.type('image/webp');
+      else if (ext === '.png') res.type('image/png');
+      else if (ext === '.gif') res.type('image/gif');
+      else if (ext === '.jpg' || ext === '.jpeg') res.type('image/jpeg');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      return res.sendFile(abs);
+    }
+
     const title = sanitizeTitle(doc.title);
     const downloadName = title
       ? path.extname(title)
         ? title
         : `${title}${ext}`
       : doc.filename;
-    res.download(doc.file_path, downloadName);
+    res.download(abs, downloadName);
   });
 
   router.delete('/api/documents/:id', (req, res) => {

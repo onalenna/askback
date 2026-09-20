@@ -231,6 +231,7 @@ function rememberMessage(chatJid, line, persist = true) {
     text: clip(line.text),
     quoted: clip(line.quoted),
     quotedId: String(line.quotedId || ''),
+    participant: String(line.participant || ''),
     ts: Number(line.ts || 0),
     raw: line.raw || null,
   };
@@ -262,6 +263,12 @@ function rememberWaMessage(msg) {
     text: text || quoted,
     quoted,
     quotedId: getContextInfo(msg)?.stanzaId || '',
+    participant:
+      msg.key?.participantPn ||
+      msg.key?.participant ||
+      msg.key?.participantLid ||
+      msg.participant ||
+      '',
     ts: Number(msg.messageTimestamp || 0),
     raw: msg.message || null,
   };

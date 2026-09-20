@@ -177,13 +177,79 @@ function setDeadlineRemindersToggle(on) {
   }
 }
 
-function renderDocs(docs) {
-  const el = document.getElementById('docs');
-  if (!docs.length) {
-    el.innerHTML = '<li class="meta">No files yet. Add a WhatsApp .txt export, PDF, or audio recording above.</li>';
+const DOCS_FIRST_PAGE = 3;
+const DOCS_PAGE_SIZE = 10;
+let docsCache = [];
+let docsPage = 1;
+
+const QA_PAGE_SIZE = 5;
+let qaCache = [];
+let qaPage = 1;
+
+const STICKERS_PAGE_SIZE = 10;
+let stickersCache = [];
+let stickersPage = 1;
+
+function docsTotalPages(count) {
+  if (count <= DOCS_FIRST_PAGE) return 1;
+  return 1 + Math.ceil((count - DOCS_FIRST_PAGE) / DOCS_PAGE_SIZE);
+}
+
+function docsPageSlice(docs, page) {
+  const total = docsTotalPages(docs.length);
+  const safe = Math.min(Math.max(1, page), total);
+  if (safe <= 1) return docs.slice(0, DOCS_FIRST_PAGE);
+  const start = DOCS_FIRST_PAGE + (safe - 2) * DOCS_PAGE_SIZE;
+  return docs.slice(start, start + DOCS_PAGE_SIZE);
+}
+
+function docsRangeLabel(docs, page) {
+  const total = docs.length;
+  if (!total) return '';
+  if (page <= 1) {
+    const end = Math.min(DOCS_FIRST_PAGE, total);
+    return `1–${end} of ${total}`;
+  }
+  const start = DOCS_FIRST_PAGE + (page - 2) * DOCS_PAGE_SIZE + 1;
+  const end = Math.min(start + DOCS_PAGE_SIZE - 1, total);
+  return `${start}–${end} of ${total}`;
+}
+
+function renderDocsPager() {
+  const pager = document.getElementById('docs-pager');
+  if (!pager) return;
+  const totalPages = docsTotalPages(docsCache.length);
+  if (docsCache.length <= DOCS_FIRST_PAGE) {
+    pager.hidden = true;
+    pager.innerHTML = '';
     return;
   }
-  el.innerHTML = docs
+  pager.hidden = false;
+  pager.innerHTML = `
+    <p class="pager-meta">${escapeHtml(docsRangeLabel(docsCache, docsPage))}</p>
+    <div class="pager-actions">
+      <button type="button" class="ghost" data-docs-page="prev" ${docsPage <= 1 ? 'disabled' : ''}>Prev</button>
+      <span class="pager-meta">Page ${docsPage} / ${totalPages}</span>
+      <button type="button" class="ghost" data-docs-page="next" ${docsPage >= totalPages ? 'disabled' : ''}>Next</button>
+    </div>
+  `;
+}
+
+function renderDocs(docs) {
+  const el = document.getElementById('docs');
+  docsCache = Array.isArray(docs) ? docs : [];
+  const totalPages = docsTotalPages(docsCache.length);
+  if (docsPage > totalPages) docsPage = totalPages;
+  if (docsPage < 1) docsPage = 1;
+
+  if (!docsCache.length) {
+    el.innerHTML = '<li class="meta">No files yet. Add a WhatsApp .txt export, PDF, or audio recording above.</li>';
+    renderDocsPager();
+    return;
+  }
+
+  const pageDocs = docsPageSlice(docsCache, docsPage);
+  el.innerHTML = pageDocs
     .map(
       (d) => `
       <li class="file-item" data-id="${d.id}" data-title="${escapeHtml(d.title || d.filename)}" data-filename="${escapeHtml(d.filename)}">
@@ -205,15 +271,94 @@ function renderDocs(docs) {
       </li>`
     )
     .join('');
+  renderDocsPager();
+}
+
+function renderStickers(stickers) {
+  const el = document.getElementById('stickers');
+  if (!el) return;
+  stickersCache = Array.isArray(stickers) ? stickers : [];
+  const totalPages = Math.max(1, Math.ceil(stickersCache.length / STICKERS_PAGE_SIZE) || 1);
+  if (stickersPage > totalPages) stickersPage = totalPages;
+  if (stickersPage < 1) stickersPage = 1;
+
+  if (!stickersCache.length) {
+    el.innerHTML =
+      '<li class="meta">No stickers yet. Upload .webp files with clear names (thanks, bestie, haha).</li>';
+    renderStickersPager();
+    return;
+  }
+
+  const start = (stickersPage - 1) * STICKERS_PAGE_SIZE;
+  const pageRows = stickersCache.slice(start, start + STICKERS_PAGE_SIZE);
+  const base = window.ASKBACK_BASE || '';
+  el.innerHTML = pageRows
+    .map((d) => {
+      const src = `${base}/api/documents/${d.id}/file`;
+      return `
+      <li class="file-item" data-id="${d.id}" data-title="${escapeHtml(d.title || d.filename)}" data-filename="${escapeHtml(d.filename)}">
+        <div class="sticker-row">
+          <img
+            class="sticker-thumb"
+            src="${src}"
+            alt="${escapeHtml(d.title || d.filename || 'sticker')}"
+            loading="lazy"
+            decoding="async"
+            onerror="this.classList.add('sticker-thumb-missing'); this.replaceWith(Object.assign(document.createElement('div'),{className:'sticker-thumb sticker-thumb-missing',textContent:'no preview'}));"
+          />
+          <div>
+            <h3>${escapeHtml(d.title || d.filename)}</h3>
+            <p class="meta">${escapeHtml(d.filename)} · sticker · ${escapeHtml(d.created_at || '')}</p>
+            <div class="file-actions">
+              <button type="button" class="danger" data-action="delete">Delete</button>
+            </div>
+          </div>
+        </div>
+      </li>`;
+    })
+    .join('');
+  renderStickersPager();
+}
+
+function renderStickersPager() {
+  const pager = document.getElementById('stickers-pager');
+  if (!pager) return;
+  const total = stickersCache.length;
+  const totalPages = Math.max(1, Math.ceil(total / STICKERS_PAGE_SIZE) || 1);
+  if (total <= STICKERS_PAGE_SIZE) {
+    pager.hidden = true;
+    pager.innerHTML = '';
+    return;
+  }
+  const start = (stickersPage - 1) * STICKERS_PAGE_SIZE + 1;
+  const end = Math.min(stickersPage * STICKERS_PAGE_SIZE, total);
+  pager.hidden = false;
+  pager.innerHTML = `
+    <p class="pager-meta">${start}–${end} of ${total}</p>
+    <div class="pager-actions">
+      <button type="button" class="ghost" data-stickers-page="prev" ${stickersPage <= 1 ? 'disabled' : ''}>Prev</button>
+      <span class="pager-meta">Page ${stickersPage} / ${totalPages}</span>
+      <button type="button" class="ghost" data-stickers-page="next" ${stickersPage >= totalPages ? 'disabled' : ''}>Next</button>
+    </div>
+  `;
 }
 
 function renderQa(rows) {
   const el = document.getElementById('qa');
-  if (!rows.length) {
+  qaCache = Array.isArray(rows) ? rows : [];
+  const totalPages = Math.max(1, Math.ceil(qaCache.length / QA_PAGE_SIZE) || 1);
+  if (qaPage > totalPages) qaPage = totalPages;
+  if (qaPage < 1) qaPage = 1;
+
+  if (!qaCache.length) {
     el.innerHTML = '<li class="meta">No answered questions yet. Message the bot in WhatsApp.</li>';
+    renderQaPager();
     return;
   }
-  el.innerHTML = rows
+
+  const start = (qaPage - 1) * QA_PAGE_SIZE;
+  const pageRows = qaCache.slice(start, start + QA_PAGE_SIZE);
+  el.innerHTML = pageRows
     .map(
       (r) => `
       <li>
@@ -223,6 +368,30 @@ function renderQa(rows) {
       </li>`
     )
     .join('');
+  renderQaPager();
+}
+
+function renderQaPager() {
+  const pager = document.getElementById('qa-pager');
+  if (!pager) return;
+  const total = qaCache.length;
+  const totalPages = Math.max(1, Math.ceil(total / QA_PAGE_SIZE) || 1);
+  if (total <= QA_PAGE_SIZE) {
+    pager.hidden = true;
+    pager.innerHTML = '';
+    return;
+  }
+  const start = (qaPage - 1) * QA_PAGE_SIZE + 1;
+  const end = Math.min(qaPage * QA_PAGE_SIZE, total);
+  pager.hidden = false;
+  pager.innerHTML = `
+    <p class="pager-meta">${start}–${end} of ${total}</p>
+    <div class="pager-actions">
+      <button type="button" class="ghost" data-qa-page="prev" ${qaPage <= 1 ? 'disabled' : ''}>Prev</button>
+      <span class="pager-meta">Page ${qaPage} / ${totalPages}</span>
+      <button type="button" class="ghost" data-qa-page="next" ${qaPage >= totalPages ? 'disabled' : ''}>Next</button>
+    </div>
+  `;
 }
 
 function renderGroups(groups) {
@@ -326,15 +495,17 @@ function renderAdmins(admins) {
 }
 
 async function refresh() {
-  const [stats, docs, qa, admins] = await Promise.all([
+  const [stats, docs, stickers, qa, admins] = await Promise.all([
     api('/api/stats'),
     api('/api/documents'),
+    api('/api/stickers'),
     api('/api/qa'),
     api('/api/admins'),
   ]);
   renderStats(stats);
   fillVoiceSelect(stats);
   renderDocs(docs);
+  renderStickers(stickers);
   renderQa(qa);
   renderAdmins(admins);
   refreshSendGroups();
@@ -392,6 +563,52 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
     fileInput.value = '';
     titleInput.value = '';
     fileLabel.textContent = 'Choose files';
+    await refresh();
+  } catch (err) {
+    status.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
+  }
+});
+
+const stickerFileInput = document.getElementById('sticker-file');
+const stickerFileLabel = document.getElementById('sticker-file-label');
+const stickerTitleInput = document.getElementById('sticker-title');
+
+stickerFileInput?.addEventListener('change', () => {
+  const files = [...(stickerFileInput.files || [])];
+  if (!files.length) {
+    stickerFileLabel.textContent = 'Choose stickers';
+    return;
+  }
+  stickerFileLabel.textContent =
+    files.length === 1 ? files[0].name : `${files.length} stickers selected`;
+  if (!stickerTitleInput.value.trim() && files[0]) {
+    stickerTitleInput.value = 'Stickers';
+    stickerTitleInput.select();
+  }
+});
+
+document.getElementById('sticker-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const status = document.getElementById('sticker-status');
+  const files = [...(stickerFileInput?.files || [])];
+  const title = stickerTitleInput?.value.trim() || 'Stickers';
+  if (!files.length) return;
+  status.textContent =
+    files.length === 1 ? 'Uploading sticker…' : `Uploading ${files.length} stickers…`;
+  const body = new FormData();
+  body.append('title', title);
+  for (const file of files) body.append('file', file);
+  try {
+    const result = await api('/api/stickers', { method: 'POST', body });
+    const added = result.added || [];
+    status.textContent =
+      added.length === 1
+        ? `Added sticker ${added[0].title || added[0].filename}`
+        : `Added ${added.length} stickers`;
+    if (stickerFileInput) stickerFileInput.value = '';
+    if (stickerTitleInput) stickerTitleInput.value = '';
+    if (stickerFileLabel) stickerFileLabel.textContent = 'Choose stickers';
+    stickersPage = 1;
     await refresh();
   } catch (err) {
     status.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
@@ -595,7 +812,35 @@ function senderHue(name) {
   return h % 360;
 }
 
-function renderChatMessages(messages) {
+function formatChatTextHtml(text, attachments = {}) {
+  const base = window.ASKBACK_BASE || '';
+  const src = String(text || '');
+  if (!src) return '';
+
+  const re = /\[([^\]]*)\]\(attachment:\/\/([^)\s]+)\)/gi;
+  let html = '';
+  let last = 0;
+  let match;
+  while ((match = re.exec(src))) {
+    html += escapeHtml(src.slice(last, match.index));
+    const label = match[1] || 'attachment';
+    const fileName = String(match[2] || '').trim();
+    const id =
+      attachments[fileName] ||
+      attachments[fileName.split('/').pop()] ||
+      null;
+    if (id) {
+      html += `<img class="chat-attach" src="${base}/api/documents/${id}/file" alt="${escapeHtml(label)}" loading="lazy" />`;
+    } else {
+      html += `<span class="chat-attach-missing">${escapeHtml(label)}</span>`;
+    }
+    last = match.index + match[0].length;
+  }
+  html += escapeHtml(src.slice(last));
+  return html.replace(/\n/g, '<br>');
+}
+
+function renderChatMessages(messages, attachments = {}) {
   return messages
     .map((msg) => {
       if (msg.system) {
@@ -606,7 +851,7 @@ function renderChatMessages(messages) {
       const hue = senderHue(msg.sender);
       return `<article class="chat-bubble">
         ${msg.sender ? `<strong style="color:hsl(${hue},58%,34%)">${escapeHtml(msg.sender)}</strong>` : ''}
-        <p>${escapeHtml(msg.text)}</p>
+        <p>${formatChatTextHtml(msg.text, attachments)}</p>
         ${msg.time ? `<time>${escapeHtml(msg.time)}</time>` : ''}
       </article>`;
     })
@@ -625,14 +870,36 @@ function renderPreview(preview) {
   if (preview.truncated) bits.push('showing the start');
   meta.textContent = bits.join(' · ');
 
+  if (preview.kind === 'sticker' || preview.kind === 'image' || preview.mediaUrl) {
+    const base = window.ASKBACK_BASE || '';
+    const url = preview.mediaUrl?.startsWith('http')
+      ? preview.mediaUrl
+      : `${base}${preview.mediaUrl || `/api/documents/${preview.id}/file`}`;
+    body.className = 'doc-preview media-preview';
+    body.innerHTML = `<img class="preview-media" src="${url}" alt="${escapeHtml(preview.title || 'Sticker')}" />`;
+    return;
+  }
+
   if (preview.kind === 'chat' && preview.messages?.length) {
     body.className = 'chat-thread';
-    body.innerHTML = renderChatMessages(preview.messages);
+    body.innerHTML = renderChatMessages(preview.messages, preview.attachments || {});
     return;
   }
 
   body.className = 'doc-preview';
   const text = String(preview.text || '').trim();
+  // Chunk text that is only an attachment link → show image if we can resolve it
+  const onlyAttach = text.match(/^\[([^\]]*)\]\(attachment:\/\/([^)\s]+)\)$/i);
+  if (onlyAttach) {
+    const fileName = onlyAttach[2];
+    const id = preview.attachments?.[fileName];
+    if (id) {
+      const base = window.ASKBACK_BASE || '';
+      body.className = 'doc-preview media-preview';
+      body.innerHTML = `<img class="preview-media" src="${base}/api/documents/${id}/file" alt="${escapeHtml(onlyAttach[1] || 'Sticker')}" />`;
+      return;
+    }
+  }
   body.innerHTML = text
     ? `<pre>${escapeHtml(text)}</pre>`
     : '<p class="meta">No readable text in this file yet.</p>';
@@ -705,6 +972,51 @@ editForm.addEventListener('submit', async (e) => {
     editStatus.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
   } finally {
     saveBtn.disabled = false;
+  }
+});
+
+document.getElementById('stickers-pager')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-stickers-page]');
+  if (!btn || btn.disabled) return;
+  const totalPages = Math.max(1, Math.ceil(stickersCache.length / STICKERS_PAGE_SIZE) || 1);
+  if (btn.dataset.stickersPage === 'prev') stickersPage = Math.max(1, stickersPage - 1);
+  if (btn.dataset.stickersPage === 'next') stickersPage = Math.min(totalPages, stickersPage + 1);
+  renderStickers(stickersCache);
+});
+
+document.getElementById('qa-pager')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-qa-page]');
+  if (!btn || btn.disabled) return;
+  const totalPages = Math.max(1, Math.ceil(qaCache.length / QA_PAGE_SIZE) || 1);
+  if (btn.dataset.qaPage === 'prev') qaPage = Math.max(1, qaPage - 1);
+  if (btn.dataset.qaPage === 'next') qaPage = Math.min(totalPages, qaPage + 1);
+  renderQa(qaCache);
+});
+
+document.getElementById('docs-pager')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-docs-page]');
+  if (!btn || btn.disabled) return;
+  const totalPages = docsTotalPages(docsCache.length);
+  if (btn.dataset.docsPage === 'prev') docsPage = Math.max(1, docsPage - 1);
+  if (btn.dataset.docsPage === 'next') docsPage = Math.min(totalPages, docsPage + 1);
+  renderDocs(docsCache);
+});
+
+document.getElementById('stickers')?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action="delete"]');
+  if (!btn) return;
+  const item = btn.closest('.file-item');
+  const id = item?.dataset.id;
+  if (!id) return;
+  const name = item.dataset.title || item.dataset.filename || 'this sticker';
+  if (!confirm(`Delete sticker ${name}?`)) return;
+  btn.disabled = true;
+  try {
+    await api(`/api/documents/${id}`, { method: 'DELETE' });
+    await refresh();
+  } catch (err) {
+    btn.disabled = false;
+    alert(err.message || 'Could not delete');
   }
 });
 

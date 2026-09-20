@@ -34,7 +34,7 @@ function mimeFor(filename, type) {
   if (map[ext]) return map[ext];
   if (type === 'pdf') return 'application/pdf';
   if (type === 'text') return 'text/plain';
-  if (type === 'image') return 'image/jpeg';
+  if (type === 'image' || type === 'sticker') return ext === '.png' ? 'image/png' : 'image/webp';
   if (type === 'document') return 'application/octet-stream';
   return 'application/octet-stream';
 }
@@ -159,4 +159,33 @@ async function replaceFile(docId, filePath, filename, type) {
   }
 }
 
-module.exports = { ingestFile, replaceFile, unlinkQuiet };
+async function ingestSticker(filePath, filename, title = '') {
+  const ext = path.extname(filename || '').toLowerCase();
+  if (!['.webp', '.png', '.jpg', '.jpeg', '.gif'].includes(ext)) {
+    throw new Error('Stickers must be .webp, .png, .jpg, or .gif');
+  }
+  const { saveStickerToLibrary } = require('../stickers/library');
+  const saved = saveStickerToLibrary(filePath, filename);
+  const label = displayTitle(title, saved.filename) || saved.title;
+  const docId = statements.insertDoc.run(saved.filename, 'sticker', saved.path, saved.mimetype, label)
+    .lastInsertRowid;
+
+  try {
+    statements.updateDocFile.run(saved.path, saved.mimetype, docId);
+    statements.updateDocChunks.run(0, docId);
+    statements.updateDocStatus.run('ready', '', docId);
+    return {
+      id: docId,
+      filename: saved.filename,
+      title: label,
+      type: 'sticker',
+      chunkCount: 0,
+      filePath: saved.path,
+    };
+  } catch (err) {
+    statements.updateDocStatus.run('error', err.message, docId);
+    throw err;
+  }
+}
+
+module.exports = { ingestFile, ingestSticker, replaceFile, unlinkQuiet };

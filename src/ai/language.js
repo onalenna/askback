@@ -38,19 +38,46 @@ const WORD_HINTS = {
     'peux',
     'peux-tu',
     'connais',
+    'résume',
+    'resume',
+    'traduis',
+    'fichier',
+    'document',
+    'réponds',
+    'reponds',
+    'aide',
+    'besoin',
+    'aussi',
+    'mais',
+    'très',
+    'tres',
+    'beaucoup',
+    'quand',
+    'où',
+    'ou',
+    'quel',
+    'quelle',
+    'puis',
+    'donc',
   ],
   es: [
     'hola',
     'gracias',
     'qué',
+    'que',
     'cómo',
+    'como',
     'por qué',
+    'porque',
     'está',
+    'esta',
     'usted',
     'buenos',
     'días',
+    'dias',
     'quiero',
     'dónde',
+    'donde',
     'español',
     'espanol',
     'hablas',
@@ -62,6 +89,20 @@ const WORD_HINTS = {
     'después',
     'despues',
     'entonces',
+    'archivo',
+    'documento',
+    'traduce',
+    'responde',
+    'ayuda',
+    'puedes',
+    'porfa',
+    'por favor',
+    'mucho',
+    'hola',
+    'buenas',
+    'noches',
+    'mañana',
+    'manana',
   ],
   pt: [
     'olá',
@@ -76,11 +117,28 @@ const WORD_HINTS = {
     'para',
     'uma',
     'está',
+    'esta',
     'porque',
     'porquê',
     'português',
     'portugues',
     'fala',
+    'arquivo',
+    'documento',
+    'resumo',
+    'traduz',
+    'ajuda',
+    'preciso',
+    'pode',
+    'favor',
+    'também',
+    'tambem',
+    'então',
+    'entao',
+    'quando',
+    'onde',
+    'bom',
+    'dia',
   ],
   it: [
     'ciao',
@@ -95,6 +153,43 @@ const WORD_HINTS = {
     'una',
     'italiano',
     'parli',
+    'file',
+    'documento',
+    'riassumi',
+    'traduci',
+    'aiuto',
+    'puoi',
+    'per favore',
+    'anche',
+    'quando',
+    'dove',
+    'buonasera',
+    'prego',
+  ],
+  de: [
+    'hallo',
+    'danke',
+    'bitte',
+    'was',
+    'wie',
+    'warum',
+    'nicht',
+    'und',
+    'oder',
+    'ich',
+    'du',
+    'sie',
+    'deutsch',
+    'übersetze',
+    'ubersetze',
+    'zusammenfassung',
+    'hilfe',
+    'kannst',
+    'datei',
+    'dokument',
+    'guten',
+    'morgen',
+    'abend',
   ],
   tn: [
     'dumela',
@@ -122,6 +217,10 @@ const WORD_HINTS = {
     'o kae',
     'a o',
     'ke a',
+    'ke batla',
+    'nthusa',
+    'faele',
+    'tokomane',
   ],
 };
 
@@ -240,6 +339,8 @@ const ALIASES = {
   fr: 'fr',
   spa: 'es',
   spanish: 'es',
+  espanol: 'es',
+  espagnol: 'es',
   es: 'es',
   por: 'pt',
   portuguese: 'pt',
@@ -282,6 +383,14 @@ const PHRASES = {
     pt: 'Ainda não tenho isso nos arquivos.',
     it: 'Non ho ancora questo nei file.',
     tn: 'Ga ke ise ke nne le se mo difaeleng.',
+  },
+  noAnswer: {
+    en: "I couldn't find a clear answer for that. Try rephrasing, or ask about a file, link, or deadline from the materials.",
+    fr: "Je n'ai pas trouvé de réponse claire. Reformule, ou demande un fichier, un lien ou une deadline des documents.",
+    es: 'No encontré una respuesta clara. Reformula, o pregunta por un archivo, enlace o fecha de los materiales.',
+    pt: 'Não encontrei uma resposta clara. Reformula, ou pergunta por um arquivo, link ou prazo dos materiais.',
+    it: 'Non ho trovato una risposta chiara. Riformula, oppure chiedi un file, un link o una scadenza dai materiali.',
+    tn: 'Ga ke a fitlhela karabo e e tlhakileng. Tlhalosa gape, kgotsa botsa ka faele, link, kgotsa deadline ya difaele.',
   },
   skipZip: {
     en: "I can't open zip files. Send the image, PDF, or document instead.",
@@ -327,7 +436,7 @@ function normalizeLangCode(code) {
 
 /**
  * Rough language of a user message. Returns a short code, or '' if unsure.
- * Non-English is only returned when the signal is clear.
+ * Prefers a clear non-English signal over defaulting to English.
  */
 function detectLanguage(text) {
   const raw = String(text || '').trim();
@@ -343,32 +452,54 @@ function detectLanguage(text) {
     [...ENGLISH_HINTS].filter((word) => word.length > 2)
   );
   const scores = {
-    fr: countHints(t, WORD_HINTS.fr) + (/[àâçéèêëîïôùûüÿœæ]/.test(t) ? 2 : 0),
-    es: countHints(t, WORD_HINTS.es) + (/[ñ¿¡]/.test(t) ? 2 : 0),
-    pt: countHints(t, WORD_HINTS.pt) + (/[ãõ]/.test(t) ? 2 : 0),
-    it: countHints(t, WORD_HINTS.it),
+    fr: countHints(t, WORD_HINTS.fr) + (/[àâçéèêëîïôùûüÿœæ]/i.test(raw) ? 3 : 0),
+    es: countHints(t, WORD_HINTS.es) + (/[ñ¿¡áéíóúü]/i.test(raw) ? 3 : 0),
+    pt: countHints(t, WORD_HINTS.pt) + (/[ãõáéíóúâêôç]/i.test(raw) ? 3 : 0),
+    it: countHints(t, WORD_HINTS.it) + (/[àèéìòù]/i.test(raw) ? 2 : 0),
+    de: countHints(t, WORD_HINTS.de) + (/[äöüß]/i.test(raw) ? 3 : 0),
     tn: countHints(t, WORD_HINTS.tn),
   };
   const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
   const best = ranked[0];
   const second = ranked[1];
-  if (looksEnglish(raw) && (!best || best[1] < englishScore + 3 || best[1] < 4)) return 'en';
-  // Need a clear winner: strong score, ahead of English, and not tied with another language
-  if (
-    best &&
-    best[1] >= 3 &&
-    best[1] >= englishScore + 2 &&
-    (!second || best[1] >= second[1] + 2)
-  ) {
+  if (!best || best[1] <= 0) {
+    return looksEnglish(raw) ? 'en' : '';
+  }
+
+  // Clear non-English winner
+  if (best[1] >= 2 && best[1] > englishScore && (!second || best[1] >= second[1] + 1)) {
     return best[0];
   }
+  // Accent / orthography signal with at least one lexical hit
+  if (best[1] >= 3 && (!second || best[1] > second[1])) {
+    return best[0];
+  }
+  // English only when it actually leads
+  if (looksEnglish(raw) && englishScore >= best[1] && englishScore >= 2) {
+    return 'en';
+  }
+  if (best[1] >= 2 && best[1] >= englishScore) return best[0];
   if (looksEnglish(raw)) return 'en';
-  return '';
+  return best[1] >= 1 ? best[0] : '';
 }
 
 function looksEnglish(text) {
   const raw = String(text || '').trim();
   if (!raw) return false;
+  // Non-Latin scripts are never "English"
+  if (SCRIPT.ja.test(raw) || SCRIPT.zh.test(raw) || SCRIPT.hi.test(raw) || SCRIPT.ar.test(raw)) {
+    return false;
+  }
+  // Strong non-English orthography
+  if (/[àâçéèêëîïôùûüÿœæñ¿¡ãõäöüß]/i.test(raw)) {
+    const nonEn = detectLanguageConfidence(raw, 'fr')
+      + detectLanguageConfidence(raw, 'es')
+      + detectLanguageConfidence(raw, 'pt')
+      + detectLanguageConfidence(raw, 'it')
+      + detectLanguageConfidence(raw, 'de');
+    if (nonEn >= 2) return false;
+  }
+
   const letters = raw.replace(/[^A-Za-zÀ-ÿ]/g, '');
   const ascii = (letters.match(/[A-Za-z]/g) || []).length;
   if (letters.length && ascii / letters.length < 0.7) return false;
@@ -384,8 +515,19 @@ function looksEnglish(text) {
   const strong = words.filter((w) => ENGLISH_HINTS.has(w) && !weak.has(w) && w.length > 1).length;
   const weakHits = words.filter((w) => weak.has(w)).length;
   if (strong >= 2) return true;
-  if (strong >= 1 && weakHits >= 1) return true;
+  if (strong >= 1 && weakHits >= 1 && words.length <= 6) return true;
   return false;
+}
+
+function hasNonEnglishSignals(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return false;
+  if (SCRIPT.ja.test(raw) || SCRIPT.zh.test(raw) || SCRIPT.hi.test(raw) || SCRIPT.ar.test(raw)) {
+    return true;
+  }
+  if (/[àâçéèêëîïôùûüÿœæñ¿¡ãõäöüß]/i.test(raw)) return true;
+  const detected = detectLanguage(raw);
+  return Boolean(detected && detected !== 'en');
 }
 
 function languageFromLabel(label) {
@@ -419,6 +561,8 @@ function requestedReplyLanguage(text) {
   const patterns = [
     /\b(?:please\s+)?(?:respond|reply|answer|write|speak|talk)(?:\s+to\s+me)?\s+in\s+([a-z][a-z\s-]{1,24}?)(?:\s+please)?(?=\s*[.!,;:?\n]|$)/i,
     /\b(?:please\s+)?(?:answer|reply|respond)\s+(?:me\s+)?(?:using|with)\s+([a-z][a-z\s-]{1,24}?)(?:\s+please)?(?=\s*[.!,;:?\n]|$)/i,
+    /\b(?:translate|traduis|traduire|traduce|traducir|übersetze|ubersetze)\b[\s\S]{0,48}?\b(?:to|into|en|al|a|in)\s+([a-zàâäéèêëïîôùûüçñõã][a-zàâäéèêëïîôùûüçñõã\s-]{1,24}?)(?:\s+please)?(?=\s*[.!,;:?\n]|$)/i,
+    /\b(?:translation|traduction|traducción|traducao|tradução)\s+(?:to|into|en|al|in)\s+([a-zàâäéèêëïîôùûüçñõã][a-zàâäéèêëïîôùûüçñõã\s-]{1,24}?)/i,
     /\b(?:responde|responda|réponds|répondez|repondez|rispondi)\s+(?:en|in)\s+([a-zàâäéèêëïîôùûüçñõã]{2,24})/i,
     /\b(?:en|in)\s+(english|french|spanish|portuguese|italian|german|dutch|arabic|swahili|setswana|tswana|hindi|japanese|chinese|français|francais|español|espanol|português|portugues|italiano|deutsch|arabe|kiswahili)\b/i,
   ];
@@ -433,25 +577,21 @@ function requestedReplyLanguage(text) {
 
 /**
  * Language the bot should reply in.
- * Defaults to English when unsure. Only switches when detection is clear
- * or the user explicitly asks for another language.
+ * Follows the user's language when detectable. Empty string means
+ * "match the question language" (do not force English).
  */
 function resolveReplyLanguage(text, hinted) {
   const sample = String(text || '').trim();
   const requested = requestedReplyLanguage(sample);
   if (requested) return requested;
-  if (looksEnglish(sample)) return 'en';
+
   const fromText = detectLanguage(sample);
   if (fromText) return fromText;
 
-  // Whisper/hint alone is not enough when the text is ambiguous
   const fromHint = normalizeLangCode(hinted);
-  if (fromHint && fromHint !== 'en' && sample) {
-    // Only trust a non-English hint if the text already leans that way a little
-    const lean = detectLanguageConfidence(sample, fromHint);
-    if (lean >= 2) return fromHint;
-  }
-  return 'en';
+  if (fromHint) return fromHint;
+
+  return '';
 }
 
 /** Soft score for a single language code against text (for hint confirmation). */
@@ -462,7 +602,43 @@ function detectLanguageConfidence(text, code) {
   if (SCRIPT[lang]?.test(text)) return 10;
   const words = WORD_HINTS[lang];
   if (!words) return 0;
-  return countHints(t, words);
+  let score = countHints(t, words);
+  if (lang === 'fr' && /[àâçéèêëîïôùûüÿœæ]/i.test(text)) score += 2;
+  if (lang === 'es' && /[ñ¿¡áéíóúü]/i.test(text)) score += 2;
+  if (lang === 'pt' && /[ãõáéíóúâêôç]/i.test(text)) score += 2;
+  if (lang === 'de' && /[äöüß]/i.test(text)) score += 2;
+  return score;
+}
+
+/**
+ * Accurate language id via model when heuristics are weak.
+ * Returns a short code or ''.
+ */
+async function detectLanguageLLM(text) {
+  const sample = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  if (!sample || sample.length < 2) return '';
+  try {
+    const { openai, CHAT_MODEL_MINI } = require('./embeddings');
+    const completion = await openai.chat.completions.create({
+      model: CHAT_MODEL_MINI(),
+      temperature: 0,
+      max_tokens: 8,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Identify the language of the user message. Reply with ONLY one ISO 639-1 code from: en, fr, es, pt, it, de, tn, ar, hi, ja, zh, nl, sw. If mixed, pick the main language of the question. No punctuation.',
+        },
+        { role: 'user', content: sample },
+      ],
+    });
+    const raw = (completion.choices[0].message.content || '').trim().toLowerCase();
+    const code = normalizeLangCode(raw.replace(/[^a-z-]/g, ''));
+    return code || '';
+  } catch (err) {
+    console.warn('[language] LLM detect failed:', err.message || err);
+    return '';
+  }
 }
 
 function userAskLanguage(text, { caption = '', hinted = '' } = {}) {
@@ -476,9 +652,35 @@ function userAskLanguage(text, { caption = '', hinted = '' } = {}) {
   const body = clean(text);
   const requested = requestedReplyLanguage(ask) || requestedReplyLanguage(body);
   if (requested) return requested;
-  if (ask) return resolveReplyLanguage(ask, hinted) || 'en';
+  if (ask) return resolveReplyLanguage(ask, hinted);
   const first = body.split(/\n/)[0].trim().slice(0, 400);
-  return resolveReplyLanguage(first || body, hinted) || 'en';
+  return resolveReplyLanguage(first || body, hinted);
+}
+
+/**
+ * Prefer heuristics, then LLM when English-default or unsure.
+ */
+async function resolveUserAskLanguage(text, { caption = '', hinted = '' } = {}) {
+  const heuristic = userAskLanguage(text, { caption, hinted });
+  const sample = String(caption || text || '')
+    .replace(/@\d+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 500);
+  const hint = normalizeLangCode(hinted);
+
+  const needsLlm =
+    !heuristic ||
+    (heuristic === 'en' && (hasNonEnglishSignals(sample) || (hint && hint !== 'en'))) ||
+    (hint && heuristic && hint !== heuristic);
+
+  if (!needsLlm) return heuristic;
+
+  const llm = await detectLanguageLLM(sample);
+  if (llm) return llm;
+  if (heuristic) return heuristic;
+  if (hint) return hint;
+  return '';
 }
 
 function lemonfoxLanguage(code) {
@@ -519,11 +721,14 @@ function phrase(key, lang) {
 
 module.exports = {
   detectLanguage,
+  detectLanguageLLM,
   resolveReplyLanguage,
   requestedReplyLanguage,
   userAskLanguage,
+  resolveUserAskLanguage,
   normalizeLangCode,
   looksEnglish,
+  hasNonEnglishSignals,
   lemonfoxLanguage,
   lemonfoxVoice,
   languageName,

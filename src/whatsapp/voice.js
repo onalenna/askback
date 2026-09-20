@@ -146,55 +146,56 @@ async function sendVoiceReply(sock, chatJid, text, quoted, mentions, language) {
     return false;
   }
 
-  try {
-    await sock.sendPresenceUpdate('recording', chatJid);
-  } catch {
-    /* presence is optional */
-  }
-
-  let file;
-  try {
-    file = await synthesizeSpeechFile(text, { language });
-  } catch (err) {
-    console.error('[whatsapp] lemonfox tts failed:', err.message || err);
-    return false;
-  }
-  if (!file?.filePath) {
-    console.error('[whatsapp] lemonfox tts returned no audio file');
-    return false;
-  }
-
-  const payload = {
-    audio: file.buffer,
-    mimetype: 'audio/ogg; codecs=opus',
-    ptt: true,
-  };
-  if (mentions?.length) payload.mentions = mentions;
+  const { startChatPresence } = require('./presence');
+  const presence = startChatPresence(sock, chatJid, 'recording');
 
   try {
-    const sent = await sock.sendMessage(chatJid, payload, quoted ? { quoted } : undefined);
-    console.log('[whatsapp] sent lemonfox voice note (ogg opus)');
-    return sent || true;
-  } catch (err) {
-    console.warn('[whatsapp] voice note send failed, retrying as audio file:', err.message || err);
+    let file;
     try {
-      const sent = await sock.sendMessage(
-        chatJid,
-        {
-          audio: file.buffer,
-          mimetype: 'audio/ogg; codecs=opus',
-          ptt: false,
-          fileName: file.fileName,
-          mentions: mentions?.length ? mentions : undefined,
-        },
-        quoted ? { quoted } : undefined
-      );
-      console.log('[whatsapp] sent lemonfox audio file (ogg opus)');
-      return sent || true;
-    } catch (err2) {
-      console.error('[whatsapp] could not send lemonfox audio:', err2.message || err2);
+      file = await synthesizeSpeechFile(text, { language });
+    } catch (err) {
+      console.error('[whatsapp] lemonfox tts failed:', err.message || err);
       return false;
     }
+    if (!file?.filePath) {
+      console.error('[whatsapp] lemonfox tts returned no audio file');
+      return false;
+    }
+
+    const payload = {
+      audio: file.buffer,
+      mimetype: 'audio/ogg; codecs=opus',
+      ptt: true,
+    };
+    if (mentions?.length) payload.mentions = mentions;
+
+    try {
+      const sent = await sock.sendMessage(chatJid, payload, quoted ? { quoted } : undefined);
+      console.log('[whatsapp] sent lemonfox voice note (ogg opus)');
+      return sent || true;
+    } catch (err) {
+      console.warn('[whatsapp] voice note send failed, retrying as audio file:', err.message || err);
+      try {
+        const sent = await sock.sendMessage(
+          chatJid,
+          {
+            audio: file.buffer,
+            mimetype: 'audio/ogg; codecs=opus',
+            ptt: false,
+            fileName: file.fileName,
+            mentions: mentions?.length ? mentions : undefined,
+          },
+          quoted ? { quoted } : undefined
+        );
+        console.log('[whatsapp] sent lemonfox audio file (ogg opus)');
+        return sent || true;
+      } catch (err2) {
+        console.error('[whatsapp] could not send lemonfox audio:', err2.message || err2);
+        return false;
+      }
+    }
+  } finally {
+    await presence.stop();
   }
 }
 
