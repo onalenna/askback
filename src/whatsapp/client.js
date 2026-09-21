@@ -15,10 +15,12 @@ let repairing = false;
 let reconnectDelay = 3000;
 let reconnectTimer = null;
 let stableTimer = null;
+let keepaliveTimer = null;
 let latestQr = null;
 let waConnected = false;
 let namedBot = false;
 let replacedAt = [];
+let lastMessageAt = Date.now(); // track last activity for dead-connection detection
 
 async function loadBaileys() {
   return import('baileys');
@@ -64,14 +66,38 @@ function releaseInstance() {
 process.on('exit', releaseInstance);
 
 function clearTimers() {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
-  if (stableTimer) {
-    clearTimeout(stableTimer);
-    stableTimer = null;
-  }
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  if (stableTimer)    { clearTimeout(stableTimer);    stableTimer = null; }
+  if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
+}
+
+/**
+ * Watchdog: poll the WebSocket state every 45 seconds.
+ * After a heavy history sync, WhatsApp silently closes the socket without
+ * firing connection.update(close), leaving waConnected=true but the socket
+ * dead. This detects that and forces a reconnect.
+ */
+function startKeepalive() {
+  if (keepaliveTimer) return;
+  keepaliveTimer = setInterval(() => {
+    if (!waConnected || repairing || starting) return;
+    const wsState = sock?.ws?.readyState;
+    const silentMs = Date.now() - lastMessageAt;
+    // WebSocket not open (1) = dead connection
+    // OR silent for >5 minutes = likely dead (WhatsApp sends pings every ~30s)
+    if (wsState !== undefined && wsState !== 1) {
+      console.warn('[whatsapp] keepalive: socket not open (state=' + wsState + ') — forcing reconnect');
+      waConnected = false;
+      sock = null;
+      scheduleReconnect(3000);
+    } else if (silentMs > 5 * 60 * 1000 && wsState === 1) {
+      // Try a lightweight ping — send an empty presence update
+      try {
+        sock?.sendPresenceUpdate?.('available').catch(() => {});
+      } catch { /* ignore */ }
+    }
+  }, 45_000);
+  keepaliveTimer.unref?.();
 }
 
 function clearAuthDir() {
@@ -176,7 +202,10 @@ async function startWhatsApp() {
       };
     }
 
-    sock.ev.on('messages.upsert', deduped(onMessages));
+    sock.ev.on('messages.upsert', (event) => {
+      lastMessageAt = Date.now();
+      return deduped(onMessages)(event);
+    });
     // messages.update fires for edits/reactions — only pass genuine content
     // updates (item.update.message set) and run them through the same dedup gate.
     sock.ev.on('messages.update', async (updates) => {
@@ -236,6 +265,7 @@ async function startWhatsApp() {
             console.warn('[whatsapp] could not set profile name:', err.message || err)
           );
         }
+        startKeepalive();
       }
 
       if (connection === 'close') {
