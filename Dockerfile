@@ -25,8 +25,8 @@ RUN mkdir -p /app/auth_info /app/uploads
 
 EXPOSE 3000
 
-# Health checks are managed by Coolify from outside the container.
-# The app exposes GET /health → { ok: true }.
-HEALTHCHECK NONE
+# /health is registered before auth middleware — no credentials needed.
+HEALTHCHECK --interval=20s --timeout=5s --start-period=45s --retries=5 \
+  CMD curl -sf http://127.0.0.1:3000/health || exit 1
 
 CMD ["node", "server.js"]

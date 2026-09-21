@@ -26,6 +26,12 @@ function renderIndex() {
 const app = express();
 if (publicAdmin()) app.set('trust proxy', 1);
 
+// Register /health BEFORE the auth-protected site so Docker/Coolify health
+// checks pass without authentication.
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, service: 'askback' });
+});
+
 const site = express.Router();
 site.use(requireAdminAuth);
 site.get(['/', '/index.html'], (_req, res) => {
@@ -33,9 +39,6 @@ site.get(['/', '/index.html'], (_req, res) => {
 });
 site.use(express.static(PUBLIC_DIR, { index: false }));
 site.use(createAdminRouter());
-site.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'askback' });
-});
 
 if (BASE) {
   app.get(BASE, (_req, res) => res.redirect(302, `${BASE}/`));
@@ -43,10 +46,6 @@ if (BASE) {
 } else {
   app.use(site);
 }
-
-app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'askback' });
-});
 
 const server = app.listen(PORT, HOST, () => {
   const local = `http://127.0.0.1:${PORT}${BASE || ''}/`;
