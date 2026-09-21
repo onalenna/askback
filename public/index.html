@@ -510,10 +510,13 @@
 
       <div class="panel">
         <div class="panel-header">
-          <div class="panel-title">Group mode</div>
+          <div class="panel-title">Group permissions</div>
           <div class="panel-sub">
-            <strong>Active</strong> — bot replies normally when tagged.<br>
-            <strong>Observer</strong> — bot reads every message and learns from it (sees other bots too), but <em>never replies</em>, even when tagged. Use this to silently learn from a competition group before your launch day.
+            Choose what the bot does in each group. Two independent permissions per group:
+            <div style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap">
+              <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;background:#fef3c7;border:1.5px solid #d97706;border-radius:20px;font-size:12px;color:#92400e;font-weight:700">📚 Learn — reads all messages, builds knowledge base, never replies</span>
+              <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;background:#dcfce7;border:1.5px solid #16a34a;border-radius:20px;font-size:12px;color:#14532d;font-weight:700">💬 Answer — reads, learns, AND replies when tagged</span>
+            </div>
           </div>
         </div>
         <div id="group-mode-list" style="font-size:14px;color:var(--muted)">Loading groups…</div>
@@ -874,41 +877,121 @@ document.getElementById('avail-form')?.addEventListener('submit', async e => {
   } catch(err) { st.innerHTML = `<span style="color:var(--danger)">${err.message}</span>`; }
 });
 
-// ── Group mode UI ─────────────────────────────────────────────────────────────
+// ── Group mode UI — two-button approach ──────────────────────────────────────
+//
+//  Each group shows two buttons:
+//  [📚 Learn]   — observer mode: bot reads every message, learns, never replies
+//  [💬 Answer]  — active mode: bot reads AND replies when tagged
+//
+//  Neither active = disabled (bot ignores this group entirely).
+//  Both can be active together: "Answer" implies learning, so selecting Answer
+//  turns on both reading AND replying.
+//
 async function refreshGroupModes() {
   const c = document.getElementById('group-mode-list');
   if (!c) return;
   const base = window.ASKBACK_BASE || '';
   try {
     const [groups, modes] = await Promise.all([
-      fetch(`${base}/api/groups`).then(r => r.json()),
-      fetch(`${base}/api/groups/modes`).then(r => r.json()),
+      fetch(`${base}/api/groups`, { headers: { Accept: 'application/json' } }).then(r => r.json()),
+      fetch(`${base}/api/groups/modes`, { headers: { Accept: 'application/json' } }).then(r => r.json()),
     ]);
-    if (!groups.length) { c.textContent = 'No groups found. Connect WhatsApp first.'; return; }
-    c.innerHTML = groups.map(g => {
+    if (!groups.length) {
+      c.innerHTML = '<p style="color:var(--muted);font-size:13px">No groups found. Connect WhatsApp first.</p>';
+      return;
+    }
+
+    // Filter out community hubs (broadcast groups — always silent)
+    const nonHubs = groups.filter(g => !g.broadcast);
+
+    c.innerHTML = nonHubs.map(g => {
       const cur = modes[g.jid] || (g.enabled ? 'active' : 'disabled');
-      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--wash)">
-        <div>
-          <div style="font-weight:600;font-size:14px">${g.name||g.jid}</div>
-          <div style="font-size:11px;color:var(--muted)">${g.jid}</div>
+      const learnOn  = cur === 'observer' || cur === 'active';
+      const answerOn = cur === 'active';
+
+      const learnStyle  = learnOn
+        ? 'background:#fef3c7;border-color:#d97706;color:#92400e;font-weight:700'
+        : 'background:var(--wash);border-color:var(--line);color:var(--muted)';
+      const answerStyle = answerOn
+        ? 'background:#dcfce7;border-color:#16a34a;color:#14532d;font-weight:700'
+        : 'background:var(--wash);border-color:var(--line);color:var(--muted)';
+
+      const statusText = cur === 'active' ? '💬 Reads &amp; answers'
+                       : cur === 'observer' ? '📚 Reads only'
+                       : '— Off';
+
+      return `<div data-jid="${g.jid}" class="group-mode-row" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--wash)">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${g.name || g.jid}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${statusText}</div>
         </div>
-        <select data-jid="${g.jid}" style="padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px;color:var(--ink)">
-          <option value="disabled" ${cur==='disabled'?'selected':''}>Disabled</option>
-          <option value="active"   ${cur==='active'?'selected':''}>Active — reply when tagged</option>
-          <option value="observer" ${cur==='observer'?'selected':''}>Observer — learn silently, never reply</option>
-        </select>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button type="button" data-jid="${g.jid}" data-action="learn"
+            style="padding:6px 12px;border:1.5px solid;border-radius:20px;font-size:12px;cursor:pointer;transition:all .15s;${learnStyle}"
+            title="Learn only — bot reads all messages and learns, but never replies">
+            📚 Learn
+          </button>
+          <button type="button" data-jid="${g.jid}" data-action="answer"
+            style="padding:6px 12px;border:1.5px solid;border-radius:20px;font-size:12px;cursor:pointer;transition:all .15s;${answerStyle}"
+            title="Learn &amp; Answer — bot reads, learns, and replies when tagged">
+            💬 Answer
+          </button>
+        </div>
       </div>`;
     }).join('');
-    c.querySelectorAll('select[data-jid]').forEach(sel => {
-      sel.addEventListener('change', async () => {
-        await fetch(`${base}/api/groups/mode`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jid: sel.dataset.jid, mode: sel.value }),
-        });
+
+    // Wire button clicks
+    c.querySelectorAll('button[data-action]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const jid    = btn.dataset.jid;
+        const action = btn.dataset.action;
+        const row    = c.querySelector(`.group-mode-row[data-jid="${jid}"]`);
+
+        // Determine current mode from button states
+        const learnBtn  = row.querySelector('[data-action="learn"]');
+        const answerBtn = row.querySelector('[data-action="answer"]');
+        const curLearn  = learnBtn.style.fontWeight === '700' || learnBtn.style.fontWeight === 'bold';
+        const curAnswer = answerBtn.style.fontWeight === '700' || answerBtn.style.fontWeight === 'bold';
+
+        let newMode;
+        if (action === 'learn') {
+          // Toggle learn: if already only learning → disable; if off → learn; if answering → keep answering (answer implies learn)
+          if (curAnswer) { newMode = 'active'; }       // answer already on, learn click does nothing different
+          else if (curLearn) { newMode = 'disabled'; } // was learn-only → turn off
+          else { newMode = 'observer'; }               // was off → learn only
+        } else {
+          // Toggle answer: if already answering → revert to learn-only; if off → active
+          if (curAnswer) { newMode = 'observer'; }  // turn off answering but keep learning
+          else { newMode = 'active'; }              // turn on answering (implies learning)
+        }
+
+        try {
+          btn.disabled = true;
+          await fetch(`${base}/api/groups/mode`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ jid, mode: newMode }),
+          });
+          // Re-render this row
+          await refreshGroupModes();
+        } catch(e) {
+          btn.disabled = false;
+          console.error('[groups] mode update failed:', e.message);
+        }
       });
     });
-  } catch(e) { c.textContent = 'Error: ' + e.message; }
+
+    // Broadcast hubs — show at bottom as informational
+    const hubs = groups.filter(g => g.broadcast);
+    if (hubs.length) {
+      c.insertAdjacentHTML('beforeend', `
+        <div style="margin-top:12px;padding:10px 14px;background:var(--wash);border-radius:8px;font-size:12px;color:var(--muted)">
+          <strong>${hubs.length} community hub${hubs.length>1?'s':''}</strong> hidden — WhatsApp would copy replies into every linked group, so the bot stays silent there automatically.
+        </div>`);
+    }
+  } catch(e) {
+    c.innerHTML = `<p style="color:var(--danger);font-size:13px">Error loading groups: ${e.message}</p>`;
+  }
 }
 
 // ── Sentiment & insights dashboard ───────────────────────────────────────────
