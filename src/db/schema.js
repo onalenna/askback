@@ -113,4 +113,34 @@ module.exports = function createSchema(db) {
   db.prepare(
     `INSERT OR IGNORE INTO settings (key, value) VALUES ('show_sources', 'on')`
   ).run();
+
+  // Admin availability calendar — stores per-person weekly schedules.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS availability (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      name      TEXT    NOT NULL,
+      phone     TEXT    NOT NULL DEFAULT '',
+      dow       INTEGER NOT NULL,  -- 0=Sun 1=Mon … 6=Sat
+      start_h   INTEGER NOT NULL,  -- 0-23
+      end_h     INTEGER NOT NULL,  -- 1-24 (exclusive)
+      label     TEXT    NOT NULL DEFAULT '',  -- optional display note e.g. "Mornings only"
+      created_at TEXT   DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_avail_name ON availability(name);
+  `);
+
+  // Group mode: 'active' (reply normally), 'observer' (learn silently, never reply).
+  // Stored in settings as JSON map { "jid@g.us": "active"|"observer" }
+  db.prepare(
+    `INSERT OR IGNORE INTO settings (key, value) VALUES ('group_modes', '{}')`
+  ).run();
+
+  // Session tokens for cookie-based login (replaces HTTP Basic Auth popup).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      token      TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      last_seen  INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+  `);
 };

@@ -156,6 +156,10 @@
     /* ── Content area ── */
     .content { flex: 1; padding: 24px; max-width: 900px; }
 
+    /* ── Page visibility — works with both hidden attr (admin.js) and .active class ── */
+    .page[hidden] { display: none !important; }
+    .page { display: block; }
+
     /* ── Panel (replaces .card) ── */
     .panel {
       background: var(--white);
@@ -307,10 +311,11 @@
     </div>
   </div>
 
+  <!-- id="site-nav" is required by admin.js which does document.getElementById('site-nav') -->
   <span class="sidebar-section-label">Main</span>
-  <ul class="nav-list" role="tablist">
+  <ul class="nav-list" id="site-nav" role="tablist">
     <li>
-      <button class="nav-btn" id="tab-status" role="tab" aria-controls="status" aria-selected="true" data-page="status">
+      <button class="nav-btn" id="tab-status" role="tab" aria-controls="status" aria-selected="false" data-page="status">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
         Status
       </button>
@@ -343,6 +348,12 @@
 
   <span class="sidebar-section-label">Settings</span>
   <ul class="nav-list" role="tablist">
+    <li>
+      <button class="nav-btn" id="tab-availability" role="tab" aria-controls="availability" aria-selected="false" data-page="availability">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><circle cx="12" cy="16" r="2"/></svg>
+        Availability
+      </button>
+    </li>
     <li>
       <button class="nav-btn" id="tab-broadcast" role="tab" aria-controls="broadcast" aria-selected="false" data-page="broadcast">
         <svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.44 2 2 0 0 1 3.61 1.25h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6 6l1.27-.95a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21.72 17z"/></svg>
@@ -378,6 +389,7 @@
         <span class="switch-thumb" aria-hidden="true"></span>
       </button>
     </div>
+    <a href="{{BASE}}/logout" style="display:block;margin-top:10px;font-size:12px;color:rgba(255,255,255,.4);text-decoration:none;text-align:center" onmouseover="this.style.color='rgba(255,255,255,.8)'" onmouseout="this.style.color='rgba(255,255,255,.4)'">Sign out</a>
   </div>
 </aside>
 
@@ -410,7 +422,7 @@
     </div>
 
     <!-- ── KNOWLEDGE ── -->
-    <div class="page" id="knowledge" role="tabpanel" aria-labelledby="tab-knowledge">
+    <div class="page" id="knowledge" role="tabpanel" aria-labelledby="tab-knowledge" hidden>
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">Upload knowledge</div>
@@ -437,7 +449,7 @@
     </div>
 
     <!-- ── GROUPS & FEATURES ── -->
-    <div class="page" id="groups" role="tabpanel" aria-labelledby="tab-groups">
+    <div class="page" id="groups" hidden role="tabpanel" aria-labelledby="tab-groups">
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">Chat groups</div>
@@ -497,10 +509,21 @@
           <button type="button" id="show-sources-toggle" class="switch" role="switch" aria-checked="true" aria-label="Show sources"><span class="switch-thumb"></span></button>
         </div>
       </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Group mode</div>
+          <div class="panel-sub">
+            <strong>Active</strong> — bot replies normally when tagged.<br>
+            <strong>Observer</strong> — bot reads every message and learns from it (sees other bots too), but <em>never replies</em>, even when tagged. Use this to silently learn from a competition group before your launch day.
+          </div>
+        </div>
+        <div id="group-mode-list" style="font-size:14px;color:var(--muted)">Loading groups…</div>
+      </div>
     </div>
 
     <!-- ── ACTIVITY ── -->
-    <div class="page" id="activity" role="tabpanel" aria-labelledby="tab-activity">
+    <div class="page" id="activity" hidden role="tabpanel" aria-labelledby="tab-activity">
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">Recent activity</div>
@@ -512,7 +535,7 @@
     </div>
 
     <!-- ── ANALYTICS ── -->
-    <div class="page" id="analytics" role="tabpanel" aria-labelledby="tab-analytics">
+    <div class="page" id="analytics" hidden role="tabpanel" aria-labelledby="tab-analytics">
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">Analytics</div>
@@ -523,8 +546,48 @@
       </div>
     </div>
 
+    <!-- ── AVAILABILITY CALENDAR ── -->
+    <div class="page" id="availability" role="tabpanel" aria-labelledby="tab-availability" hidden>
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Availability calendar</div>
+          <div class="panel-sub">Set when each person is available. The bot answers "Is Person A free on Monday?" automatically.</div>
+        </div>
+        <form id="avail-form">
+          <div class="field-row">
+            <label class="field"><span>Person's name</span><input type="text" id="avail-name" placeholder="e.g. Dr. Alice" maxlength="80" required /></label>
+            <label class="field"><span>Phone (optional)</span><input type="tel" id="avail-phone" placeholder="+267 76…" /></label>
+          </div>
+          <div class="field-row">
+            <label class="field">
+              <span>Day of week</span>
+              <select id="avail-dow">
+                <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option>
+                <option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="0">Sunday</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>From (hour)</span>
+              <input type="number" id="avail-start" min="0" max="23" value="8" required />
+            </label>
+            <label class="field">
+              <span>To (hour)</span>
+              <input type="number" id="avail-end" min="1" max="24" value="17" required />
+            </label>
+            <label class="field">
+              <span>Note (optional)</span>
+              <input type="text" id="avail-label" placeholder="e.g. Consultations only" maxlength="60" />
+            </label>
+            <button type="submit" style="align-self:flex-end">Add slot</button>
+          </div>
+        </form>
+        <p id="avail-status" class="hint"></p>
+        <div id="avail-list" style="margin-top:12px"></div>
+      </div>
+    </div>
+
     <!-- ── BROADCAST ── -->
-    <div class="page" id="broadcast" role="tabpanel" aria-labelledby="tab-broadcast">
+    <div class="page" id="broadcast" hidden role="tabpanel" aria-labelledby="tab-broadcast">
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">Send to a group</div>
@@ -559,7 +622,7 @@
     </div>
 
     <!-- ── STICKERS ── -->
-    <div class="page" id="stickers" role="tabpanel" aria-labelledby="tab-stickers">
+    <div class="page" id="stickers" hidden role="tabpanel" aria-labelledby="tab-stickers">
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">Sticker library</div>
@@ -586,7 +649,7 @@
     </div>
 
     <!-- ── ADMINS ── -->
-    <div class="page" id="admins-page" role="tabpanel" aria-labelledby="tab-admins-page">
+    <div class="page" id="admins-page" hidden role="tabpanel" aria-labelledby="tab-admins-page">
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">Bot admins</div>
@@ -611,7 +674,7 @@
     </div>
 
     <!-- ── CONTROL ── -->
-    <div class="page" id="control" role="tabpanel" aria-labelledby="tab-control">
+    <div class="page" id="control" hidden role="tabpanel" aria-labelledby="tab-control">
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">Answer tuning</div>
@@ -662,62 +725,176 @@
   </form>
 </dialog>
 
+<script src="{{BASE}}/js/admin.js?v=sidebar-2"></script>
 <script>
-// ── Sidebar navigation ──────────────────────────────────────────────────────
+// ── Sidebar bridge — runs AFTER admin.js so showTab is available ──────────────
 const PAGE_TITLES = {
-  status:      ['Status', 'WhatsApp connection & stats'],
-  knowledge:   ['Knowledge', 'Upload files for the bot to learn from'],
-  groups:      ['Groups & Features', 'Manage groups and toggle behaviours'],
-  activity:    ['Activity', 'Recent questions and answers'],
-  analytics:   ['Analytics', 'Usage stats and trends'],
-  broadcast:   ['Broadcast', 'Send a message or voice note to a group'],
-  stickers:    ['Stickers', 'Manage sticker packs'],
-  'admins-page': ['Admins', 'People the bot pings when it has no answer'],
-  control:     ['Control', 'Answer tuning and developer tools'],
+  status:       ['Status', 'WhatsApp connection & stats'],
+  knowledge:    ['Knowledge', 'Upload files for the bot to learn from'],
+  groups:       ['Groups & Features', 'Manage groups, observer mode & features'],
+  activity:     ['Activity', 'Recent questions and answers'],
+  analytics:    ['Analytics', 'Usage stats and trends'],
+  availability: ['Availability', 'Per-person schedules — bot answers availability questions'],
+  broadcast:    ['Broadcast', 'Send a message or voice note to a group'],
+  stickers:     ['Stickers', 'Manage sticker packs'],
+  'admins-page':['Admins', 'People the bot pings when it has no answer'],
+  control:      ['Control', 'Answer tuning and developer tools'],
 };
 
-function activatePage(id) {
-  // pages
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  const page = document.getElementById(id);
-  if (page) page.classList.add('active');
-  // nav buttons
+// Pages admin.js does NOT know about — sidebar manages them directly.
+const CUSTOM_PAGES = new Set(['availability', 'broadcast', 'stickers', 'admins-page']);
+
+function setTopbar(id) {
+  const [title = id, sub = ''] = PAGE_TITLES[id] || [];
+  const t = document.getElementById('page-title');
+  const s = document.getElementById('page-sub');
+  if (t) t.textContent = title;
+  if (s) s.textContent = sub;
+}
+
+function setSidebarActive(id) {
   document.querySelectorAll('.nav-btn[role="tab"]').forEach(b => {
     b.setAttribute('aria-selected', b.dataset.page === id ? 'true' : 'false');
   });
-  // topbar
-  const [title, sub] = PAGE_TITLES[id] || [id, ''];
-  document.getElementById('page-title').textContent = title;
-  document.getElementById('page-sub').textContent = sub;
-  // close mobile sidebar
-  document.getElementById('sidebar').classList.remove('open');
-  // update hash
-  location.hash = id;
 }
 
-document.querySelectorAll('.nav-btn[role="tab"]').forEach(btn => {
-  btn.addEventListener('click', () => activatePage(btn.dataset.page));
+function sidebarNavigate(id) {
+  document.getElementById('sidebar')?.classList.remove('open');
+  setTopbar(id);
+  if (CUSTOM_PAGES.has(id)) {
+    document.querySelectorAll('.page').forEach(p => { p.hidden = true; });
+    const page = document.getElementById(id);
+    if (page) page.hidden = false;
+    setSidebarActive(id);
+    history.replaceState(null, '', '#' + id);
+    if (id === 'availability') refreshAvailability();
+  } else {
+    if (typeof showTab === 'function') showTab(id);
+  }
+}
+
+document.querySelectorAll('.nav-btn[data-page]').forEach(btn => {
+  btn.addEventListener('click', () => sidebarNavigate(btn.dataset.page));
 });
 
-// Mobile menu toggle
 document.getElementById('menu-toggle')?.addEventListener('click', () => {
-  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar')?.classList.toggle('open');
 });
 
-// Restore from hash
-const hash = location.hash.replace('#', '');
-if (hash && document.getElementById(hash)) activatePage(hash);
-else activatePage('status');
+// Keep sidebar active state in sync when admin.js changes hash
+window.addEventListener('hashchange', () => {
+  setSidebarActive(location.hash.replace('#',''));
+  setTopbar(location.hash.replace('#',''));
+});
 
-// ── WA status dot wiring ────────────────────────────────────────────────────
-// admin.js sets window._waConnected — we poll it to colour the dot
+// Intercept admin.js's showTab to update topbar + sidebar highlight
+const _origST = typeof showTab !== 'undefined' ? showTab : null;
+if (_origST) {
+  window.showTab = function(id, opts) {
+    _origST(id, opts);
+    setSidebarActive(id);
+    setTopbar(id);
+    if (id === 'groups') setTimeout(refreshGroupModes, 100);
+  };
+}
+
+// WA status dot
 setInterval(() => {
   const dot = document.getElementById('wa-status-dot');
   if (!dot) return;
   dot.className = window._waConnected === true ? 'connected' : window._waConnected === false ? 'disconnected' : '';
 }, 1000);
-</script>
 
-<script src="{{BASE}}/js/admin.js?v=sidebar-1"></script>
+// ── Availability calendar UI ──────────────────────────────────────────────────
+const _DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+async function refreshAvailability() {
+  const container = document.getElementById('avail-list');
+  if (!container) return;
+  const base = window.ASKBACK_BASE || '';
+  try {
+    const rows = await fetch(`${base}/api/availability`).then(r => r.json());
+    if (!rows.length) { container.innerHTML = '<p class="hint">No schedules yet. Add time slots above.</p>'; return; }
+    const byPerson = {};
+    rows.forEach(r => { (byPerson[r.name] = byPerson[r.name] || []).push(r); });
+    container.innerHTML = Object.entries(byPerson).map(([name, slots]) => `
+      <div style="margin-bottom:14px">
+        <div style="font-weight:700;font-size:14px;color:var(--navy);margin-bottom:6px">${name}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${slots.map(s => `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--wash);border:1px solid var(--line);border-radius:20px;padding:4px 10px;font-size:12px">
+            <strong>${_DAYS[s.dow]}</strong> ${s.start_h}:00–${s.end_h}:00${s.label?' · '+s.label:''}
+            <button type="button" data-del="${s.id}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;line-height:1;padding:0" title="Remove">×</button>
+          </span>`).join('')}
+        </div>
+      </div>`).join('');
+    container.querySelectorAll('[data-del]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        await fetch(`${base}/api/availability/${btn.dataset.del}`, { method: 'DELETE' });
+        refreshAvailability();
+      });
+    });
+  } catch(e) { container.innerHTML = `<p class="hint error">${e.message}</p>`; }
+}
+
+document.getElementById('avail-form')?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const base = window.ASKBACK_BASE || '';
+  const st = document.getElementById('avail-status');
+  try {
+    st.textContent = 'Saving…';
+    await fetch(`${base}/api/availability`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name:    document.getElementById('avail-name').value.trim(),
+        phone:   document.getElementById('avail-phone').value.trim(),
+        dow:     Number(document.getElementById('avail-dow').value),
+        start_h: Number(document.getElementById('avail-start').value),
+        end_h:   Number(document.getElementById('avail-end').value),
+        label:   document.getElementById('avail-label').value.trim(),
+      }),
+    });
+    st.textContent = 'Saved!'; e.target.reset(); refreshAvailability();
+    setTimeout(() => { st.textContent = ''; }, 2000);
+  } catch(err) { st.innerHTML = `<span style="color:var(--danger)">${err.message}</span>`; }
+});
+
+// ── Group mode UI ─────────────────────────────────────────────────────────────
+async function refreshGroupModes() {
+  const c = document.getElementById('group-mode-list');
+  if (!c) return;
+  const base = window.ASKBACK_BASE || '';
+  try {
+    const [groups, modes] = await Promise.all([
+      fetch(`${base}/api/groups`).then(r => r.json()),
+      fetch(`${base}/api/groups/modes`).then(r => r.json()),
+    ]);
+    if (!groups.length) { c.textContent = 'No groups found. Connect WhatsApp first.'; return; }
+    c.innerHTML = groups.map(g => {
+      const cur = modes[g.jid] || (g.enabled ? 'active' : 'disabled');
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--wash)">
+        <div>
+          <div style="font-weight:600;font-size:14px">${g.name||g.jid}</div>
+          <div style="font-size:11px;color:var(--muted)">${g.jid}</div>
+        </div>
+        <select data-jid="${g.jid}" style="padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px;color:var(--ink)">
+          <option value="disabled" ${cur==='disabled'?'selected':''}>Disabled</option>
+          <option value="active"   ${cur==='active'?'selected':''}>Active — reply when tagged</option>
+          <option value="observer" ${cur==='observer'?'selected':''}>Observer — learn silently, never reply</option>
+        </select>
+      </div>`;
+    }).join('');
+    c.querySelectorAll('select[data-jid]').forEach(sel => {
+      sel.addEventListener('change', async () => {
+        await fetch(`${base}/api/groups/mode`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jid: sel.dataset.jid, mode: sel.value }),
+        });
+      });
+    });
+  } catch(e) { c.textContent = 'Error: ' + e.message; }
+}
+</script>
 </body>
 </html>

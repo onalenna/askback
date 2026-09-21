@@ -16,7 +16,7 @@ const { providerName, CHAT_MODEL, EMBEDDING_MODEL, getEmbeddingsBatch } = requir
 const { getLemonfoxVoice, listLemonfoxVoices, setLemonfoxVoice } = require('../ai/voices');
 const QRCode = require('qrcode');
 const { getSocket, getPairingState, rePairWhatsApp } = require('../whatsapp/client');
-const { listGroups, setGroupAllowed, sendGroupText } = require('../whatsapp/groups');
+const { listGroups, setGroupAllowed, sendGroupText, setGroupMode, getGroupModes } = require('../whatsapp/groups');
 const { listAdmins, addAdmin, removeAdmin } = require('../whatsapp/admins');
 const {
   getDailyDigest,
@@ -736,6 +736,46 @@ function createAdminRouter() {
     statements.deleteChunksByDoc.run(id);
     statements.deleteQAByDoc.run(id);
     statements.deleteDoc.run(id);
+    res.json({ ok: true });
+  });
+
+  // ── Group mode (active / observer / disabled) ──────────────────────────────
+  router.post('/api/groups/mode', express.json(), (req, res) => {
+    const { jid, mode } = req.body || {};
+    try {
+      const modes = setGroupMode(jid, mode);
+      res.json({ ok: true, modes });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.get('/api/groups/modes', (_req, res) => {
+    res.json(getGroupModes());
+  });
+
+  // ── Availability calendar ──────────────────────────────────────────────────
+  router.get('/api/availability', (_req, res) => {
+    const db = require('../db/index');
+    const rows = db.prepare(`SELECT * FROM availability ORDER BY name, dow, start_h`).all();
+    res.json(rows);
+  });
+
+  router.post('/api/availability', express.json(), (req, res) => {
+    const { name, phone = '', dow, start_h, end_h, label = '' } = req.body || {};
+    if (!name || dow === undefined || start_h === undefined || end_h === undefined) {
+      return res.status(400).json({ error: 'name, dow, start_h, end_h are required' });
+    }
+    const db = require('../db/index');
+    const result = db.prepare(
+      `INSERT INTO availability (name, phone, dow, start_h, end_h, label) VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(String(name).trim(), String(phone).trim(), Number(dow), Number(start_h), Number(end_h), String(label).trim());
+    res.json({ ok: true, id: result.lastInsertRowid });
+  });
+
+  router.delete('/api/availability/:id', (req, res) => {
+    const db = require('../db/index');
+    db.prepare(`DELETE FROM availability WHERE id = ?`).run(Number(req.params.id));
     res.json({ ok: true });
   });
 

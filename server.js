@@ -5,7 +5,12 @@ const fs = require('fs');
 const express = require('express');
 const { createAdminRouter } = require('./src/admin/routes');
 const { startWhatsApp } = require('./src/whatsapp/client');
-const { basePath, publicAdmin, adminPassword, adminUser, requireAdminAuth, requireAuth } = require('./src/admin/http');
+const {
+  basePath, publicAdmin, adminPassword, adminUser,
+  requireAdminAuth, requireAuth, secretEqual,
+  createSession, destroySession, setSessionCookie, clearSessionCookie,
+  loginPageHtml,
+} = require('./src/admin/http');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || (publicAdmin() ? '0.0.0.0' : '127.0.0.1');
@@ -26,11 +31,33 @@ function renderIndex() {
 const app = express();
 if (publicAdmin()) app.set('trust proxy', 1);
 
-// Register /health BEFORE the auth-protected site so Docker/Coolify health
-// checks pass without authentication.
+// Register /health and login routes BEFORE the auth-protected site.
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'askback' });
 });
+
+// Login page (GET) and form submit (POST)
+if (requireAuth()) {
+  app.get(`${BASE}/login`, (_req, res) => {
+    res.type('html').send(loginPageHtml(BASE, null));
+  });
+  app.post(`${BASE}/login`, express.urlencoded({ extended: false }), (req, res) => {
+    const { username = '', password = '' } = req.body;
+    if (secretEqual(username, adminUser()) && secretEqual(password, adminPassword())) {
+      const token = createSession();
+      setSessionCookie(res, token);
+      res.redirect(302, `${BASE || '/'}`);
+    } else {
+      res.type('html').send(loginPageHtml(BASE, 'Incorrect username or password.'));
+    }
+  });
+  app.get(`${BASE}/logout`, (req, res) => {
+    const { getSessionToken } = require('./src/admin/http');
+    destroySession(getSessionToken(req));
+    clearSessionCookie(res);
+    res.redirect(302, `${BASE}/login`);
+  });
+}
 
 const site = express.Router();
 site.use(requireAdminAuth);

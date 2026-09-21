@@ -1,4 +1,5 @@
 const { answerQuestion, privateChatsEnabled } = require('./answer');
+const { parseAvailabilityQuestion, availabilityAnswer } = require('./availability');
 const {
   getAudioMessage,
   isVoiceNote,
@@ -6,7 +7,7 @@ const {
   sendVoiceReply,
 } = require('./voice');
 const { sendSharedFiles } = require('./share');
-const { getGroupMeta, isBroadcastGroup, claimExclusiveGroupReply, isGroupAllowed } = require('./groups');
+const { getGroupMeta, isBroadcastGroup, claimExclusiveGroupReply, isGroupAllowed, isObserverGroup } = require('./groups');
 const {
   withMentions,
   messageAddressesBot,
@@ -209,6 +210,13 @@ async function handleOne(sock, msg, pending, answered) {
   const isPrivate = isPrivateChat(chatJid);
   if (!isGroup && !isPrivate) return;
   if (isGroup && !isGroupAllowed(chatJid)) return;
+
+  // Observer mode: ingest message into chat history for learning but never reply.
+  if (isGroup && isObserverGroup(chatJid)) {
+    trackMessage(msg);
+    return;
+  }
+
   if (isPrivate && !privateChatsEnabled()) {
     console.log('[whatsapp] skip private — private chats off');
     return;
@@ -471,6 +479,18 @@ async function handleOne(sock, msg, pending, answered) {
     console.log(
       `[whatsapp] ${isPrivate ? 'private' : 'group'} message from ${chatName || chatJid}: ${(question || raw || '').slice(0, 80)} (${chatHistory.length} prior msgs, tagged=${tagged}${requireKnown ? ', known-only' : ''})`
     );
+
+    // Check availability calendar first — fast, no AI needed.
+    if (question) {
+      const intent = parseAvailabilityQuestion(question);
+      if (intent) {
+        const avail = availabilityAnswer(intent);
+        if (avail) {
+          await sock.sendMessage(chatJid, { text: withMentions(avail, []) }, { quoted: msg });
+          return;
+        }
+      }
+    }
 
     await ensurePresence(voiceIn ? 'recording' : 'composing');
 

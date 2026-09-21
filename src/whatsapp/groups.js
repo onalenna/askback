@@ -3,6 +3,7 @@ const { rememberOutbound } = require('./history');
 const { rememberGroupSelf } = require('./mentions');
 
 const SETTING_KEY = 'allowed_groups';
+const GROUP_MODE_KEY = 'group_modes'; // { "jid@g.us": "active"|"observer" }
 const META_TTL_MS = 10 * 60 * 1000;
 const CLAIM_MS = 2 * 60 * 1000;
 
@@ -43,6 +44,42 @@ function setGroupAllowed(jid, enabled) {
   if (enabled) allowed.add(id);
   else allowed.delete(id);
   return setAllowedGroupJids([...allowed]);
+}
+
+// ── Group mode (active / observer) ───────────────────────────────────────────
+
+function getGroupModes() {
+  try {
+    const val = statements.getSetting.get(GROUP_MODE_KEY)?.value || '{}';
+    return JSON.parse(val);
+  } catch { return {}; }
+}
+
+function setGroupMode(jid, mode) {
+  const id = String(jid || '').trim();
+  if (!id.endsWith('@g.us')) throw new Error('Not a WhatsApp group JID.');
+  const allowed = ['active', 'observer', 'disabled'];
+  if (!allowed.includes(mode)) throw new Error(`Mode must be: ${allowed.join(', ')}`);
+  const modes = getGroupModes();
+  modes[id] = mode;
+  statements.setSetting.run(GROUP_MODE_KEY, JSON.stringify(modes));
+  // Keep allowed_groups in sync: observer groups must be in the list so
+  // their messages are ingested; disabled groups are removed.
+  const current = new Set(getAllowedGroupJids());
+  if (mode === 'observer' || mode === 'active') current.add(id);
+  else current.delete(id);
+  setAllowedGroupJids([...current]);
+  return modes;
+}
+
+/** Returns 'active' | 'observer' | 'disabled' for a group JID. */
+function getGroupMode(jid) {
+  return getGroupModes()[String(jid || '').trim()] || 'disabled';
+}
+
+/** True when the bot should ingest messages but NOT reply. */
+function isObserverGroup(jid) {
+  return getGroupMode(jid) === 'observer';
 }
 
 function nameFromHistory(jid) {
@@ -214,4 +251,8 @@ module.exports = {
   listGroups,
   sendGroupText,
   nameFromHistory,
+  getGroupMode,
+  setGroupMode,
+  isObserverGroup,
+  getGroupModes,
 };
