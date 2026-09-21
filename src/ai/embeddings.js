@@ -178,9 +178,10 @@ function getWhisperClient() {
  */
 function createBedrockClient() {
   let BedrockRuntimeClient;
+  let ConverseCommand;
   let InvokeModelCommand;
   try {
-    ({ BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime'));
+    ({ BedrockRuntimeClient, ConverseCommand, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime'));
   } catch {
     throw new Error(
       'AI_PROVIDER=bedrock but @aws-sdk/client-bedrock-runtime is not installed. Run: npm install @aws-sdk/client-bedrock-runtime'
@@ -188,8 +189,6 @@ function createBedrockClient() {
   }
 
   const region = process.env.AWS_REGION || process.env.BEDROCK_REGION || 'us-east-1';
-  // Credentials come from the standard AWS chain (env vars, shared config,
-  // instance role). Explicit keys win when provided.
   const explicitKey = String(process.env.AWS_ACCESS_KEY_ID || '').trim();
   const credentials = explicitKey
     ? {
@@ -203,7 +202,34 @@ function createBedrockClient() {
 
   const runtime = new BedrockRuntimeClient({ region, ...(credentials ? { credentials } : {}) });
 
-  async function invoke(modelId, body) {
+  // ConverseCommand is model-agnostic — works with Claude, Nova, DeepSeek,
+  // Llama, Mistral, and every other Bedrock model without format branching.
+  async function converse(modelId, messages, system, temperature, maxTokens) {
+    const converseMessages = messages
+      .filter((m) => m.role !== 'system')
+      .map((m) => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: [{ text: String(m.content ?? '') }],
+      }));
+    if (!converseMessages.length) {
+      converseMessages.push({ role: 'user', content: [{ text: '' }] });
+    }
+    const command = new ConverseCommand({
+      modelId,
+      messages: converseMessages,
+      ...(system ? { system: [{ text: system }] } : {}),
+      inferenceConfig: {
+        maxTokens: maxTokens || Number(process.env.BEDROCK_MAX_TOKENS || 1024),
+        temperature,
+      },
+    });
+    const res = await runtime.send(command);
+    const content = res.output?.message?.content?.[0]?.text ?? '';
+    return { choices: [{ message: { content } }] };
+  }
+
+  // InvokeModelCommand is still needed for embeddings (Titan format).
+  async function invokeEmbed(modelId, body) {
     const command = new InvokeModelCommand({
       modelId,
       contentType: 'application/json',
@@ -214,64 +240,29 @@ function createBedrockClient() {
     return JSON.parse(Buffer.from(res.body).toString('utf8'));
   }
 
-  const isAnthropic = (id) => /anthropic|claude/i.test(String(id || ''));
-
   return {
     chat: {
       completions: {
         /**
-         * Mirror of OpenAI chat.completions.create for the fields the app uses:
-         * model, messages, temperature, response_format. Returns the same
-         * shape: { choices: [{ message: { content } }] }.
+         * Mirror of OpenAI chat.completions.create.
+         * Uses Bedrock ConverseCommand — works with ANY Bedrock model:
+         * Amazon Nova, DeepSeek, Llama, Mistral, Claude, etc.
          */
         async create({ model, messages = [], temperature = 0.4, response_format } = {}) {
           const modelId = model || CHAT_MODEL();
-
-          if (isAnthropic(modelId)) {
-            // Anthropic on Bedrock: system prompt is separate from turns.
-            const system = messages
-              .filter((m) => m.role === 'system')
-              .map((m) => m.content)
-              .join('\n\n');
-            const turns = messages
-              .filter((m) => m.role !== 'system')
-              .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content ?? '') }));
-            const wantsJson = response_format?.type === 'json_object';
-            const body = {
-              anthropic_version: 'bedrock-2023-05-31',
-              max_tokens: Number(process.env.BEDROCK_MAX_TOKENS || 1024),
-              temperature,
-              ...(system ? { system: wantsJson ? `${system}\nReturn valid JSON only.` : system } : {}),
-              messages: turns.length ? turns : [{ role: 'user', content: '' }],
-            };
-            const out = await invoke(modelId, body);
-            const content = Array.isArray(out.content)
-              ? out.content.map((c) => c.text || '').join('')
-              : String(out.completion || '');
-            return { choices: [{ message: { content } }] };
-          }
-
-          // Amazon Titan text models.
-          const prompt = messages.map((m) => `${m.role}: ${m.content}`).join('\n');
-          const body = {
-            inputText: prompt,
-            textGenerationConfig: {
-              temperature,
-              maxTokenCount: Number(process.env.BEDROCK_MAX_TOKENS || 1024),
-            },
-          };
-          const out = await invoke(modelId, body);
-          const content = (out.results && out.results[0]?.outputText) || '';
-          return { choices: [{ message: { content } }] };
+          const system = messages
+            .filter((m) => m.role === 'system')
+            .map((m) => {
+              let text = String(m.content ?? '');
+              if (response_format?.type === 'json_object') text += '\nReturn valid JSON only.';
+              return text;
+            })
+            .join('\n\n');
+          return converse(modelId, messages, system || undefined, temperature);
         },
       },
     },
     embeddings: {
-      /**
-       * Mirror of OpenAI embeddings.create. Bedrock embeds ONE input per call,
-       * so a batch (array input) is fanned out. Returns the OpenAI shape:
-       * { data: [{ index, embedding }] }.
-       */
       async create({ model, input } = {}) {
         const modelId = model || EMBEDDING_MODEL();
         const inputs = Array.isArray(input) ? input : [input];
@@ -280,7 +271,7 @@ function createBedrockClient() {
           const body = /titan/i.test(modelId)
             ? { inputText: String(inputs[i] ?? ''), dimensions: EMBEDDING_DIMENSIONS, normalize: true }
             : { inputText: String(inputs[i] ?? '') };
-          const out = await invoke(modelId, body);
+          const out = await invokeEmbed(modelId, body);
           const embedding = out.embedding || (out.embeddings && out.embeddings[0]) || [];
           data.push({ index: i, embedding });
         }
