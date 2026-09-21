@@ -171,7 +171,18 @@ function requireAdminAuth(req, res, next) {
   const token = getSessionToken(req);
   if (token && touchSession(token)) return next();
 
-  // Redirect to login page.
+  // API requests (fetch/XHR) must get 401 JSON — not a page redirect.
+  // Browser page navigations get redirected to the login form.
+  const isApiRequest =
+    String(req.path || '').startsWith('/api/') ||
+    String(req.headers.accept || '').includes('application/json') ||
+    String(req.headers['x-requested-with'] || '').toLowerCase() === 'xmlhttprequest';
+
+  if (isApiRequest) {
+    res.status(401).json({ error: 'Unauthorized — please sign in' });
+    return;
+  }
+
   const base = basePath();
   res.redirect(302, `${base}/login`);
 }

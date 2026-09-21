@@ -1,6 +1,14 @@
 async function api(path, options = {}) {
   const base = window.ASKBACK_BASE || '';
-  const res = await fetch(`${base}${path}`, options);
+  const res = await fetch(`${base}${path}`, {
+    ...options,
+    headers: { 'Accept': 'application/json', ...(options.headers || {}) },
+  });
+  if (res.status === 401) {
+    // Session expired — redirect to login page.
+    window.location.href = `${base}/login`;
+    return {};
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
@@ -1440,5 +1448,5 @@ window.addEventListener('hashchange', () => {
 });
 
 showTab(location.hash.replace('#', '') || 'knowledge', { updateHash: false });
-setInterval(refreshWhatsAppPair, 3000);
+setInterval(refreshWhatsAppPair, 6000);
 refreshWhatsAppPair();
