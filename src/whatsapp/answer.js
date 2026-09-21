@@ -3,6 +3,8 @@ const { generateAnswer } = require('../ai/generator');
 const { searchAll } = require('../ai/search');
 const { statements, setQAEmbedding, questionHash, findByQuestionHash } = require('../db/queries');
 const { classifyAsync } = require('../ai/sentiment');
+const { offTopicReply } = require('../ai/persona');
+const { getProgramContext } = require('../ai/settings');
 const { isShareRequest, isShareFollowUp, pickFilesToShare, shareAskText } = require('./share');
 const {
   botHelpAnswer,
@@ -490,6 +492,27 @@ async function answerQuestion(
   if (requireKnown && !hasConfidentKnowledge(knowledge, { broad }) && !repeated.length) {
     console.log('[whatsapp] untagged group ask — not sure enough, staying silent');
     return null;
+  }
+
+  // ── Off-topic deflection ────────────────────────────────────────────────────
+  // If a program context is configured AND the bot is tagged directly in a group
+  // BUT the knowledge base has no relevant hits, the question is likely off-topic.
+  // Return a persona-appropriate funny/serious deflection instead of AI hallucination.
+  if (
+    isGroup &&
+    !aboutChat &&
+    !fromMedia &&
+    !wantsShare &&
+    !wantsDocWork &&
+    !knowledge.length &&
+    !repeated.length &&
+    getProgramContext()
+  ) {
+    const deflection = offTopicReply(text);
+    if (deflection) {
+      console.log('[whatsapp] off-topic deflection triggered');
+      return { text: deflection, source: 'off_topic', files: [], language: lang || 'en' };
+    }
   }
 
   console.log(

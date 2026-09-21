@@ -67,13 +67,42 @@ function getTuning() {
   return out;
 }
 
+// ── Text/persona settings stored in the same settings table ──────────────────
+
+function readText(key, fallback = '') {
+  try {
+    const row = statements.getSetting.get(key);
+    if (row?.value != null && row.value !== '') return String(row.value);
+  } catch { /* ignore */ }
+  return fallback;
+}
+
+function setText(key, value) {
+  statements.setSetting.run(key, String(value ?? '').trim());
+}
+
+/** Persona profile: 'funny' | 'serious' | 'friendly' | 'professional' */
+function getPersona() { return readText('persona', 'friendly'); }
+/** What this bot is for, injected into the system prompt. */
+function getProgramContext() { return readText('program_context', ''); }
+/** Emoji density: 'none' | 'light' | 'expressive' */
+function getEmojiMode() { return readText('emoji_mode', 'light'); }
+/** Whether to detect and deflect off-topic questions. */
+function getOffTopicMode() { return readText('off_topic_mode', 'deflect'); }
+
 module.exports = {
   readNumber,
   setTuning,
   getTuning,
   kbMatchThreshold: () => readNumber('kb_match_threshold'),
-  repeatThreshold: () => readNumber('repeat_threshold'),
-  topK: () => readNumber('top_k'),
-  maxQuestionLength: () => readNumber('max_question_length'),
+  repeatThreshold:  () => readNumber('repeat_threshold'),
+  topK:             () => readNumber('top_k'),
+  maxQuestionLength:() => readNumber('max_question_length'),
   TUNING_KEYS: Object.keys(DEFS),
+  readText,
+  setText,
+  getPersona,
+  getProgramContext,
+  getEmojiMode,
+  getOffTopicMode,
 };

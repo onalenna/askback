@@ -1,5 +1,6 @@
 const { openai, CHAT_MODEL } = require('./embeddings');
 const { languageName } = require('./language');
+const { personaBlock } = require('./persona');
 
 const MODEL = CHAT_MODEL;
 
@@ -39,8 +40,8 @@ function buildPrompt(
 
   const parts = [
     'You are askBack, a WhatsApp assistant.',
-    'Personality: relaxed, warm, and lightly playful, like a helpful friend in the group, not a stiff corporate bot.',
-    'Keep answers clear and useful. A small joke or casual phrasing is fine when it fits; never force humor.',
+    personaBlock(), // persona + emoji + program context from dashboard settings
+    'Keep answers clear and useful.',
     'Stay respectful. Do not be sarcastic about people.',
     'ACCURACY FIRST: Never invent people, names, dates, links, deadlines, facts, or quotes.',
     'Only use names that appear in the Knowledge files or Recent WhatsApp messages you were given. If a name is not there, do not guess it.',

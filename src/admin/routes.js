@@ -332,6 +332,29 @@ function createAdminRouter() {
     }
   });
 
+  // ── Persona / personality settings ───────────────────────────────────────
+  router.get('/api/persona', (_req, res) => {
+    const { getPersona, getProgramContext, getEmojiMode, getOffTopicMode } = require('../ai/settings');
+    const { getAllPersonas } = require('../ai/persona');
+    res.json({
+      persona: getPersona(),
+      programContext: getProgramContext(),
+      emojiMode: getEmojiMode(),
+      offTopicMode: getOffTopicMode(),
+      personas: getAllPersonas(),
+    });
+  });
+
+  router.post('/api/persona', express.json(), (req, res) => {
+    const { setText } = require('../ai/settings');
+    const { persona, programContext, emojiMode, offTopicMode } = req.body || {};
+    if (persona)        setText('persona', persona);
+    if (programContext !== undefined) setText('program_context', programContext);
+    if (emojiMode)      setText('emoji_mode', emojiMode);
+    if (offTopicMode)   setText('off_topic_mode', offTopicMode);
+    res.json({ ok: true });
+  });
+
   // ── Sentiment & insights analytics ────────────────────────────────────────
   router.get('/api/analytics/sentiment', (_req, res) => {
     const db = require('../db/index');

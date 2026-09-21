@@ -347,6 +347,12 @@
   <span class="sidebar-section-label">Settings</span>
   <ul class="nav-list" role="tablist">
     <li>
+      <button class="nav-btn" id="tab-persona" role="tab" aria-controls="persona" aria-selected="false" data-page="persona">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M5 20a7 7 0 0 1 14 0"/><path d="M12 14v6"/><path d="M9 17l3-3 3 3"/></svg>
+        Personality
+      </button>
+    </li>
+    <li>
       <button class="nav-btn" id="tab-availability" role="tab" aria-controls="availability" aria-selected="false" data-page="availability">
         <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><circle cx="12" cy="16" r="2"/></svg>
         Availability
@@ -564,6 +570,45 @@
       </div>
     </div>
 
+    <!-- ── PERSONALITY ── -->
+    <div class="page" id="persona" role="tabpanel" aria-labelledby="tab-persona" hidden>
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Bot personality</div>
+          <div class="panel-sub">Choose how the bot sounds. Changes take effect on the next message — no restart needed.</div>
+        </div>
+        <div id="persona-profiles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Program context</div>
+          <div class="panel-sub">Tell the bot what it is for. When set, off-topic questions in groups get a funny deflection instead of a hallucinated answer.</div>
+        </div>
+        <label class="field" style="margin-bottom:12px">
+          <span>What is this bot for?</span>
+          <input type="text" id="persona-program" placeholder="e.g. METI AI Program 2026, Unipod Cohort 5, RBC Health Training…" maxlength="120" />
+        </label>
+        <label class="field" style="margin-bottom:16px">
+          <span>Off-topic handling</span>
+          <select id="persona-offtopic">
+            <option value="deflect">😄 Deflect with humour — funny reply, redirect to program</option>
+            <option value="silent">🤫 Stay silent — ignore unrelated questions entirely</option>
+          </select>
+        </label>
+        <button type="button" id="persona-save-context" style="background:var(--navy);color:#fff;border:none;border-radius:6px;padding:9px 20px;font-weight:600;cursor:pointer">Save context</button>
+        <p id="persona-context-status" class="hint" style="margin-top:8px"></p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Emoji style</div>
+          <div class="panel-sub">How many emojis the bot uses in replies.</div>
+        </div>
+        <div id="emoji-options" style="display:flex;gap:10px;flex-wrap:wrap"></div>
+      </div>
+    </div>
+
     <!-- ── AVAILABILITY CALENDAR ── -->
     <div class="page" id="availability" role="tabpanel" aria-labelledby="tab-availability" hidden>
       <div class="panel">
@@ -752,6 +797,7 @@ const PAGE_TITLES = {
   groups:       ['Groups & Features', 'Manage groups, observer mode & features'],
   activity:     ['Activity', 'Recent questions and answers'],
   analytics:    ['Analytics', 'Usage stats and trends'],
+  persona:      ['Personality', "Set the bot's tone, emoji style, and program context"],
   availability: ['Availability', 'Per-person schedules — bot answers availability questions'],
   broadcast:    ['Broadcast', 'Send a message or voice note to a group'],
   stickers:     ['Stickers', 'Manage sticker packs'],
@@ -760,7 +806,7 @@ const PAGE_TITLES = {
 };
 
 // Pages admin.js does NOT know about — sidebar manages them directly.
-const CUSTOM_PAGES = new Set(['availability', 'broadcast', 'stickers', 'admins-page']);
+const CUSTOM_PAGES = new Set(['persona', 'availability', 'broadcast', 'stickers', 'admins-page']);
 
 function setTopbar(id) {
   const [title = id, sub = ''] = PAGE_TITLES[id] || [];
@@ -786,6 +832,7 @@ function sidebarNavigate(id) {
     setSidebarActive(id);
     history.replaceState(null, '', '#' + id);
     if (id === 'availability') refreshAvailability();
+    if (id === 'persona')       loadPersonaPage();
   } else {
     if (typeof showTab === 'function') showTab(id);
   }
@@ -993,6 +1040,101 @@ async function refreshGroupModes() {
     c.innerHTML = `<p style="color:var(--danger);font-size:13px">Error loading groups: ${e.message}</p>`;
   }
 }
+
+// ── Personality / Persona UI ──────────────────────────────────────────────────
+const PERSONA_DISPLAY = {
+  funny:        { emoji: '😄', label: 'Funny',        desc: 'Sharp wit, jokes, playful — keeps the group entertained' },
+  friendly:     { emoji: '😊', label: 'Friendly',     desc: 'Warm and conversational, like a helpful friend in the group' },
+  professional: { emoji: '💼', label: 'Professional', desc: 'Polished, formal, clear — suitable for a work environment' },
+  serious:      { emoji: '🎯', label: 'Serious',      desc: 'Precise and direct. No jokes, clean structured answers' },
+};
+const EMOJI_DISPLAY = {
+  none:       { emoji: '🚫', label: 'No emojis',  desc: 'Plain text only' },
+  light:      { emoji: '✨', label: 'Subtle',      desc: '1–2 emojis per reply' },
+  expressive: { emoji: '🎉', label: 'Expressive', desc: 'Emojis used freely' },
+};
+
+async function loadPersonaPage() {
+  const base = window.ASKBACK_BASE || '';
+  try {
+    const data = await fetch(`${base}/api/persona`, { headers: { Accept: 'application/json' } }).then(r => r.json());
+
+    // Persona profile cards
+    const profileEl = document.getElementById('persona-profiles');
+    if (profileEl) {
+      profileEl.innerHTML = Object.entries(PERSONA_DISPLAY).map(([id, m]) => {
+        const active = data.persona === id;
+        return `<button type="button" data-persona="${id}"
+          style="border:2px solid ${active?'var(--accent)':'var(--line)'};background:${active?'#eff6ff':'var(--white)'};border-radius:10px;padding:16px 12px;text-align:center;cursor:pointer;transition:all .15s">
+          <div style="font-size:28px;margin-bottom:6px">${m.emoji}</div>
+          <div style="font-weight:700;font-size:13px;color:var(--ink);margin-bottom:4px">${m.label}</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.4">${m.desc}</div>
+          ${active ? '<div style="margin-top:6px;font-size:11px;font-weight:700;color:var(--accent)">✓ Active</div>' : ''}
+        </button>`;
+      }).join('');
+      profileEl.querySelectorAll('[data-persona]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await fetch(`${base}/api/persona`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ persona: btn.dataset.persona }),
+          });
+          loadPersonaPage();
+        });
+      });
+    }
+
+    // Context fields
+    const progEl = document.getElementById('persona-program');
+    const offEl  = document.getElementById('persona-offtopic');
+    if (progEl) progEl.value = data.programContext || '';
+    if (offEl)  offEl.value  = data.offTopicMode   || 'deflect';
+
+    // Emoji options
+    const emojiEl = document.getElementById('emoji-options');
+    if (emojiEl) {
+      emojiEl.innerHTML = Object.entries(EMOJI_DISPLAY).map(([id, m]) => {
+        const active = data.emojiMode === id;
+        return `<button type="button" data-emoji="${id}"
+          style="border:2px solid ${active?'var(--accent)':'var(--line)'};background:${active?'#eff6ff':'var(--white)'};border-radius:10px;padding:12px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:all .15s">
+          <span style="font-size:20px">${m.emoji}</span>
+          <div>
+            <div style="font-weight:700;font-size:13px;color:var(--ink)">${m.label}</div>
+            <div style="font-size:11px;color:var(--muted)">${m.desc}</div>
+            ${active ? '<div style="font-size:11px;font-weight:700;color:var(--accent)">✓ Active</div>' : ''}
+          </div>
+        </button>`;
+      }).join('');
+      emojiEl.querySelectorAll('[data-emoji]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await fetch(`${base}/api/persona`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ emojiMode: btn.dataset.emoji }),
+          });
+          loadPersonaPage();
+        });
+      });
+    }
+  } catch(e) {
+    const el = document.getElementById('persona-profiles');
+    if (el) el.innerHTML = `<p style="color:var(--danger);font-size:13px">Error: ${e.message}</p>`;
+  }
+}
+
+document.getElementById('persona-save-context')?.addEventListener('click', async () => {
+  const base = window.ASKBACK_BASE || '';
+  const st   = document.getElementById('persona-context-status');
+  try {
+    if (st) st.textContent = 'Saving…';
+    await fetch(`${base}/api/persona`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        programContext: document.getElementById('persona-program')?.value || '',
+        offTopicMode:   document.getElementById('persona-offtopic')?.value || 'deflect',
+      }),
+    });
+    if (st) { st.textContent = '✓ Saved!'; setTimeout(() => { st.textContent = ''; }, 2000); }
+  } catch(e) { if (st) st.innerHTML = `<span style="color:var(--danger)">${e.message}</span>`; }
+});
 
 // ── Sentiment & insights dashboard ───────────────────────────────────────────
 const SENTIMENT_META = {
