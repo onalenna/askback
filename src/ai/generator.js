@@ -58,6 +58,18 @@ function buildPrompt(
     'If you do not know when it was posted, omit the Posted line. Never invent a date or purpose.',
     languageRule(question, language),
   ];
+
+  // Inject negative examples — past answers flagged as wrong by an admin.
+  // This teaches the model what NOT to say without any extra training.
+  if (Array.isArray(extras?.negativeExamples) && extras.negativeExamples.length) {
+    const negBlock = extras.negativeExamples
+      .map((e, i) => `Example ${i + 1} — Question: "${e.question}" → Bad answer: "${e.answer}"`)
+      .join('\n');
+    parts.push(
+      `IMPORTANT — PAST MISTAKES: The following answers were marked WRONG by an admin. Do NOT repeat these patterns:\n${negBlock}\nLearn from these and give a better, more accurate answer this time.`
+    );
+  }
+
   if (fromVoice) {
     parts.push(
       'This answer will be read aloud as a voice note. Use plain text only. Never use emojis, emoticons, or symbol icons.'

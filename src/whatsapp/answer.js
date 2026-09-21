@@ -1,7 +1,7 @@
 const { getEmbedding } = require('../ai/embeddings');
 const { generateAnswer } = require('../ai/generator');
 const { searchAll } = require('../ai/search');
-const { statements, setQAEmbedding, questionHash, findByQuestionHash } = require('../db/queries');
+const { statements, setQAEmbedding, questionHash, findByQuestionHash, findNegativeExamples } = require('../db/queries');
 const { classifyAsync } = require('../ai/sentiment');
 const { offTopicReply } = require('../ai/persona');
 const { getProgramContext } = require('../ai/settings');
@@ -529,6 +529,9 @@ async function answerQuestion(
         : knowledge.length
           ? formatChatContext((chatHistory || []).slice(-12))
           : chatContext;
+  // Find bad-feedback answers similar to this question — inject as negative examples
+  const negativeExamples = embedding ? findNegativeExamples(embedding) : [];
+
   const generated = (
     await generateAnswer(text, knowledge, {
       chatContext: promptChat,
@@ -542,6 +545,7 @@ async function answerQuestion(
       language: lang,
       requireKnown,
       isGroup,
+      negativeExamples, // past wrong answers to avoid repeating
     })
   ).trim();
   if (

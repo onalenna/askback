@@ -196,6 +196,21 @@ function searchSimilarQuestions(queryEmbedding, threshold, limit = 5) {
       feedback: row.feedback,
       score: cosineSimilarity(queryEmbedding, row.vec),
     }))
+    .filter((r) => r.score >= threshold && r.feedback !== 'bad') // never reuse bad-feedback answers
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+/**
+ * Return bad-feedback Q+A pairs similar to this question.
+ * These are injected into the system prompt as "do NOT answer like this"
+ * so the model learns from past mistakes without human retraining.
+ */
+function findNegativeExamples(queryEmbedding, limit = 3) {
+  const threshold = 0.65; // looser than repeat — catch nearby bad answers too
+  return getQAVectors()
+    .filter((r) => r.feedback === 'bad')
+    .map((r) => ({ question: r.question, answer: r.answer, score: cosineSimilarity(queryEmbedding, r.vec) }))
     .filter((r) => r.score >= threshold)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
@@ -358,4 +373,5 @@ module.exports = {
   invalidateQACache,
   findByQuestionHash,
   questionHash,
+  findNegativeExamples,
 };
