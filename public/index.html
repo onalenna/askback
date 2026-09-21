@@ -539,10 +539,27 @@
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">Analytics</div>
-          <div class="panel-sub">Activity from what askBack has seen. Counts reflect active participants and recent traffic.</div>
+          <div class="panel-sub">Activity from what askBack has seen.</div>
         </div>
         <div class="stats-grid" id="analytics-summary">Loading…</div>
         <div id="analytics-body"></div>
+      </div>
+
+      <div class="panel" id="sentiment-panel">
+        <div class="panel-header">
+          <div class="panel-title">Group sentiment</div>
+          <div class="panel-sub">How members feel based on their questions — classified by AI in the background.</div>
+        </div>
+        <div id="sentiment-chart" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px"></div>
+
+        <div class="panel-title" style="font-size:14px;margin-bottom:8px">Most confused topics</div>
+        <div id="confused-list" style="font-size:13px;color:var(--muted)">Loading…</div>
+
+        <div class="panel-title" style="font-size:14px;margin:16px 0 8px">Most asked questions</div>
+        <div id="top-questions-list" style="font-size:13px;color:var(--muted)">Loading…</div>
+
+        <div class="panel-title" style="font-size:14px;margin:16px 0 8px">Self-learning stats</div>
+        <div id="learning-stats" style="font-size:13px;color:var(--muted)">Loading…</div>
       </div>
     </div>
 
@@ -894,6 +911,146 @@ async function refreshGroupModes() {
       });
     });
   } catch(e) { c.textContent = 'Error: ' + e.message; }
+}
+
+// ── Sentiment & insights dashboard ───────────────────────────────────────────
+const SENTIMENT_META = {
+  confused:   { label: 'Confused',    color: '#f59e0b', emoji: '😕' },
+  frustrated: { label: 'Frustrated',  color: '#ef4444', emoji: '😤' },
+  curious:    { label: 'Curious',     color: '#3b82f6', emoji: '🤔' },
+  satisfied:  { label: 'Satisfied',   color: '#10b981', emoji: '😊' },
+  neutral:    { label: 'Neutral',     color: '#94a3b8', emoji: '😐' },
+};
+
+async function refreshSentimentPanel() {
+  const base = window.ASKBACK_BASE || '';
+  try {
+    const { counts, confused, topQuestions, feedbackStats } = await fetch(`${base}/api/analytics/sentiment`).then(r => r.json());
+
+    // Sentiment bar chart
+    const total = counts.reduce((s, c) => s + c.c, 0) || 1;
+    const chartEl = document.getElementById('sentiment-chart');
+    if (chartEl) {
+      chartEl.innerHTML = counts.map(c => {
+        const meta = SENTIMENT_META[c.sentiment] || { label: c.sentiment, color: '#94a3b8', emoji: '•' };
+        const pct = Math.round((c.c / total) * 100);
+        return `<div style="flex:1;min-width:100px;background:var(--wash);border-radius:8px;padding:12px 14px;border-left:4px solid ${meta.color}">
+          <div style="font-size:22px;margin-bottom:4px">${meta.emoji}</div>
+          <div style="font-weight:700;font-size:18px;color:${meta.color}">${pct}%</div>
+          <div style="font-size:12px;color:var(--muted)">${meta.label} · ${c.c}</div>
+        </div>`;
+      }).join('');
+    }
+
+    // Confused topics
+    const confEl = document.getElementById('confused-list');
+    if (confEl) {
+      if (!confused.length) { confEl.textContent = 'No confused questions yet.'; }
+      else confEl.innerHTML = `<ul style="list-style:none;padding:0">${confused.map(q =>
+        `<li style="padding:6px 0;border-bottom:1px solid var(--wash)">
+          <span style="color:#f59e0b;margin-right:6px">😕</span>${q.question}
+          ${q.group_name ? `<span style="font-size:11px;color:var(--muted);margin-left:6px">in ${q.group_name}</span>` : ''}
+        </li>`).join('')}</ul>`;
+    }
+
+    // Top questions
+    const topEl = document.getElementById('top-questions-list');
+    if (topEl) {
+      if (!topQuestions.length) { topEl.textContent = 'No questions yet.'; }
+      else topEl.innerHTML = `<ol style="padding-left:20px">${topQuestions.map(q =>
+        `<li style="padding:4px 0">${q.question} <span style="font-size:11px;color:var(--muted)">(asked ${q.c}×${q.groups?` in ${q.groups}`:''})</span></li>`
+      ).join('')}</ol>`;
+    }
+
+    // Learning stats
+    const learnEl = document.getElementById('learning-stats');
+    if (learnEl && feedbackStats) {
+      learnEl.innerHTML = `
+        <div style="display:flex;gap:16px;flex-wrap:wrap">
+          <div style="background:var(--wash);border-radius:8px;padding:12px 16px;min-width:120px">
+            <div style="font-size:22px;font-weight:800;color:var(--success)">${feedbackStats.good || 0}</div>
+            <div style="font-size:12px;color:var(--muted)">Approved answers</div>
+          </div>
+          <div style="background:var(--wash);border-radius:8px;padding:12px 16px;min-width:120px">
+            <div style="font-size:22px;font-weight:800;color:var(--accent)">${feedbackStats.learned || 0}</div>
+            <div style="font-size:12px;color:var(--muted)">Learned into KB</div>
+          </div>
+          <div style="background:var(--wash);border-radius:8px;padding:12px 16px;min-width:120px">
+            <div style="font-size:22px;font-weight:800;color:#f59e0b">${feedbackStats.corrected || 0}</div>
+            <div style="font-size:12px;color:var(--muted)">Corrected answers</div>
+          </div>
+          <div style="background:var(--wash);border-radius:8px;padding:12px 16px;min-width:120px">
+            <div style="font-size:22px;font-weight:800;color:var(--danger)">${feedbackStats.bad || 0}</div>
+            <div style="font-size:12px;color:var(--muted)">Flagged bad</div>
+          </div>
+        </div>`;
+    }
+  } catch(e) {
+    const el = document.getElementById('sentiment-chart');
+    if (el) el.textContent = 'Could not load sentiment data.';
+  }
+}
+
+// ── Feedback buttons on Activity items ───────────────────────────────────────
+// admin.js renders the #qa list. We intercept after it renders to add feedback.
+function injectFeedbackButtons() {
+  const base = window.ASKBACK_BASE || '';
+  document.querySelectorAll('#qa li[data-id]').forEach(li => {
+    if (li.querySelector('.feedback-row')) return; // already injected
+    const id = li.dataset.id;
+    const row = document.createElement('div');
+    row.className = 'feedback-row';
+    row.style.cssText = 'display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap';
+    row.innerHTML = `
+      <span style="font-size:11px;color:var(--muted)">Rate answer:</span>
+      <button type="button" data-fb="good" data-id="${id}" style="font-size:12px;padding:3px 8px;background:var(--wash);border:1px solid var(--line);border-radius:20px;cursor:pointer" title="Good answer — add to knowledge base">👍 Good</button>
+      <button type="button" data-fb="bad"  data-id="${id}" style="font-size:12px;padding:3px 8px;background:var(--wash);border:1px solid var(--line);border-radius:20px;cursor:pointer" title="Mark as incorrect">👎 Bad</button>
+      <button type="button" data-fb="edit" data-id="${id}" style="font-size:12px;padding:3px 8px;background:var(--wash);border:1px solid var(--line);border-radius:20px;cursor:pointer" title="Correct this answer">✏️ Correct</button>
+    `;
+    li.appendChild(row);
+  });
+
+  document.querySelectorAll('[data-fb]').forEach(btn => {
+    if (btn._fbBound) return;
+    btn._fbBound = true;
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const fb = btn.dataset.fb;
+      if (fb === 'edit') {
+        const correction = prompt('Enter the correct answer:');
+        if (!correction) return;
+        await fetch(`${base}/api/qa/${id}/feedback`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ feedback: 'corrected', correction }),
+        });
+        btn.closest('.feedback-row').innerHTML = '<span style="font-size:11px;color:var(--success)">✓ Corrected and learned</span>';
+      } else {
+        await fetch(`${base}/api/qa/${id}/feedback`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ feedback: fb }),
+        });
+        btn.closest('.feedback-row').innerHTML = fb === 'good'
+          ? '<span style="font-size:11px;color:var(--success)">✓ Added to knowledge base</span>'
+          : '<span style="font-size:11px;color:var(--muted)">Flagged as incorrect</span>';
+      }
+    });
+  });
+}
+
+// Poll for new QA items and inject feedback buttons
+setInterval(() => {
+  if (!document.getElementById('activity')?.hidden === false) return;
+  injectFeedbackButtons();
+}, 1500);
+
+// Refresh sentiment when analytics tab is opened (intercept showTab)
+const _origST2 = window.showTab;
+if (_origST2) {
+  window.showTab = function(id, opts) {
+    _origST2(id, opts);
+    if (id === 'analytics') setTimeout(refreshSentimentPanel, 100);
+    if (id === 'activity') setTimeout(injectFeedbackButtons, 300);
+  };
 }
 </script>
 </body>

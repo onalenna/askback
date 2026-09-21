@@ -1,7 +1,8 @@
 const { getEmbedding } = require('../ai/embeddings');
 const { generateAnswer } = require('../ai/generator');
 const { searchAll } = require('../ai/search');
-const { statements, setQAEmbedding } = require('../db/queries');
+const { statements, setQAEmbedding, questionHash, findByQuestionHash } = require('../db/queries');
+const { classifyAsync } = require('../ai/sentiment');
 const { isShareRequest, isShareFollowUp, pickFilesToShare, shareAskText } = require('./share');
 const {
   botHelpAnswer,
@@ -544,6 +545,8 @@ async function answerQuestion(
   if (embedding) {
     const score = knowledge[0]?.score;
     const documentId = knowledge[0]?.document_id || null;
+    const chunkIds = knowledge.map((c) => c.id).filter(Boolean);
+    const qHash = questionHash(text);
     const id = statements.insertQA.run(
       chatJid,
       chatName || '',
@@ -554,6 +557,14 @@ async function answerQuestion(
       documentId
     ).lastInsertRowid;
     setQAEmbedding(id, embedding);
+    // Store hash + chunk_ids for fast repeat-question cache.
+    try {
+      const db = require('../db/index');
+      db.prepare(`UPDATE qa_history SET question_hash = ?, chunk_ids = ? WHERE id = ?`)
+        .run(qHash, JSON.stringify(chunkIds), id);
+    } catch { /* non-critical */ }
+    // Classify sentiment async — never blocks the reply path.
+    classifyAsync(id, text);
   }
 
   // Feature: source citation. Only for answers actually grounded in a document

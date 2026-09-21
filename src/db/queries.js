@@ -134,32 +134,96 @@ const stats = {
   `).all(),
 };
 
-function getQAEmbeddings() {
-  return db
-    .prepare(`SELECT id, question, answer, embedding, document_id FROM qa_history WHERE embedding IS NOT NULL`)
-    .all();
-}
-
 function setQAEmbedding(id, embedding) {
   db.prepare(`UPDATE qa_history SET embedding = ? WHERE id = ?`).run(
     JSON.stringify(embedding),
     id
   );
+  invalidateQACache(); // keep cache in sync
+}
+
+/**
+ * In-memory QA embedding cache — mirrors the chunk cache pattern.
+ *
+ * searchSimilarQuestions() previously loaded ALL qa_history rows and parsed
+ * every embedding on every question. With 100s of stored Q&As this becomes
+ * megabytes of JSON parsing per query. We cache parsed vectors and reload only
+ * when the row count or max id changes (same change-detection as chunk cache).
+ */
+let _qaCache = { sig: null, rows: [] };
+
+function qaSignature() {
+  try {
+    const r = db.prepare(`SELECT COUNT(*) AS c, COALESCE(MAX(id),0) AS m FROM qa_history WHERE embedding IS NOT NULL`).get();
+    return `${r.c}:${r.m}`;
+  } catch { return null; }
+}
+
+function getQAVectors() {
+  const sig = qaSignature();
+  if (sig !== null && sig === _qaCache.sig) return _qaCache.rows;
+  const raw = db.prepare(
+    `SELECT id, question, answer, embedding, document_id, feedback, corrected_answer FROM qa_history WHERE embedding IS NOT NULL`
+  ).all();
+  const rows = [];
+  for (const r of raw) {
+    let vec;
+    try { vec = JSON.parse(r.embedding); } catch { continue; }
+    rows.push({
+      id: r.id,
+      question: r.question,
+      answer: r.corrected_answer || r.answer,
+      document_id: r.document_id,
+      feedback: r.feedback,
+      vec,
+    });
+  }
+  _qaCache = { sig, rows };
+  return rows;
+}
+
+function invalidateQACache() {
+  _qaCache = { sig: null, rows: [] };
 }
 
 function searchSimilarQuestions(queryEmbedding, threshold, limit = 5) {
-  const rows = getQAEmbeddings();
-  return rows
+  return getQAVectors()
     .map((row) => ({
       id: row.id,
       question: row.question,
       answer: row.answer,
       document_id: row.document_id,
-      score: cosineSimilarity(queryEmbedding, JSON.parse(row.embedding)),
+      feedback: row.feedback,
+      score: cosineSimilarity(queryEmbedding, row.vec),
     }))
     .filter((r) => r.score >= threshold)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
+}
+
+/**
+ * Exact-match cache lookup by question hash — O(1), skips embedding + search.
+ * Returns the best stored answer if confidence is above the repeat threshold.
+ */
+function findByQuestionHash(hash, repeatThreshold) {
+  if (!hash) return null;
+  const row = db.prepare(
+    `SELECT * FROM qa_history WHERE question_hash = ? AND embedding IS NOT NULL ORDER BY id DESC LIMIT 1`
+  ).get(hash);
+  if (!row) return null;
+  // Even for exact hash match, require a minimum confidence from a past answer.
+  const score = 1.0; // exact hash = perfect match
+  if (score < (repeatThreshold || 0)) return null;
+  return { id: row.id, answer: row.corrected_answer || row.answer, score };
+}
+
+function normalizeQuestion(q) {
+  return String(q || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function questionHash(q) {
+  const crypto = require('crypto');
+  return crypto.createHash('sha256').update(normalizeQuestion(q)).digest('hex').slice(0, 16);
 }
 
 /**
@@ -291,4 +355,7 @@ module.exports = {
   searchKnowledgeText,
   setQAEmbedding,
   invalidateChunkCache,
+  invalidateQACache,
+  findByQuestionHash,
+  questionHash,
 };

@@ -60,6 +60,29 @@ module.exports = function createSchema(db) {
   if (!qaCols.includes('document_id')) {
     db.exec(`ALTER TABLE qa_history ADD COLUMN document_id INTEGER`);
   }
+  // Sentiment analysis — classified async after answer is stored.
+  if (!qaCols.includes('sentiment')) {
+    db.exec(`ALTER TABLE qa_history ADD COLUMN sentiment TEXT`); // confused|satisfied|frustrated|curious|neutral
+  }
+  // Self-learning — admin feedback on answers.
+  if (!qaCols.includes('feedback')) {
+    db.exec(`ALTER TABLE qa_history ADD COLUMN feedback TEXT`); // null | 'good' | 'corrected'
+  }
+  if (!qaCols.includes('corrected_answer')) {
+    db.exec(`ALTER TABLE qa_history ADD COLUMN corrected_answer TEXT`);
+  }
+  if (!qaCols.includes('learned')) {
+    db.exec(`ALTER TABLE qa_history ADD COLUMN learned INTEGER DEFAULT 0`); // 1 = embedded into KB
+  }
+  // RAG cache — hash of normalized question for O(1) exact-match lookup.
+  if (!qaCols.includes('question_hash')) {
+    db.exec(`ALTER TABLE qa_history ADD COLUMN question_hash TEXT`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_qa_question_hash ON qa_history(question_hash)`);
+  }
+  // Chunk IDs used to answer — stored so repeated questions skip the vector search.
+  if (!qaCols.includes('chunk_ids')) {
+    db.exec(`ALTER TABLE qa_history ADD COLUMN chunk_ids TEXT`); // JSON int[]
+  }
 
   const docCols = db.prepare(`PRAGMA table_info(documents)`).all().map((c) => c.name);
   if (!docCols.includes('file_path')) {

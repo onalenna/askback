@@ -310,6 +310,66 @@ function createAdminRouter() {
     res.json(statements.recentQA.all(50));
   });
 
+  // ── Feedback / self-learning ───────────────────────────────────────────────
+  router.post('/api/qa/:id/feedback', express.json(), async (req, res) => {
+    const { learnFromQA } = require('../ai/selflearn');
+    const id = Number(req.params.id);
+    const { feedback, correction } = req.body || {};
+    if (!['good', 'bad', 'corrected'].includes(feedback)) {
+      return res.status(400).json({ error: 'feedback must be good | bad | corrected' });
+    }
+    const db = require('../db/index');
+    try {
+      if (feedback === 'good' || feedback === 'corrected') {
+        const result = await learnFromQA(id, correction || undefined);
+        return res.json(result);
+      }
+      // 'bad' — just mark it, don't embed
+      db.prepare(`UPDATE qa_history SET feedback = 'bad' WHERE id = ?`).run(id);
+      return res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Sentiment & insights analytics ────────────────────────────────────────
+  router.get('/api/analytics/sentiment', (_req, res) => {
+    const db = require('../db/index');
+    try {
+      const counts = db.prepare(`
+        SELECT COALESCE(sentiment,'neutral') AS sentiment, COUNT(*) AS c
+        FROM qa_history GROUP BY 1
+      `).all();
+
+      const confused = db.prepare(`
+        SELECT question, group_name, created_at FROM qa_history
+        WHERE sentiment = 'confused'
+        ORDER BY created_at DESC LIMIT 20
+      `).all();
+
+      const topQuestions = db.prepare(`
+        SELECT question, COUNT(*) AS c, GROUP_CONCAT(DISTINCT group_name) AS groups
+        FROM qa_history
+        GROUP BY LOWER(TRIM(question))
+        ORDER BY c DESC LIMIT 20
+      `).all();
+
+      const feedbackStats = db.prepare(`
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN feedback='good' THEN 1 ELSE 0 END) AS good,
+          SUM(CASE WHEN feedback='bad' THEN 1 ELSE 0 END) AS bad,
+          SUM(CASE WHEN feedback='corrected' THEN 1 ELSE 0 END) AS corrected,
+          SUM(CASE WHEN learned=1 THEN 1 ELSE 0 END) AS learned
+        FROM qa_history
+      `).get();
+
+      res.json({ counts, confused, topQuestions, feedbackStats });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   router.get('/api/analytics', (_req, res) => {
     try {
       res.json(buildAnalytics());
