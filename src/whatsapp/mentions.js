@@ -160,8 +160,13 @@ function rawMessageText(msg) {
   );
 }
 
+// All aliases that trigger the bot when typed in a message.
+// Add any short alias here — @ask is the quickest to type in a group.
+const BOT_ALIASES = ['askback', 'askbak', 'ask', 'bot'];
+
 function namedBot(text) {
-  return /(^|[^\w])@(askback|askbak)\b/i.test(text || '');
+  const pattern = new RegExp(`(^|[^\\w])@(${BOT_ALIASES.join('|')})\\b`, 'i');
+  return pattern.test(text || '');
 }
 
 function numericAtUsers(text) {
@@ -376,8 +381,7 @@ function escapeRegExp(value) {
 function stripSelfTags(text, sock, extraSelf = []) {
   let body = String(text || '');
   const tags = new Set(selfIds(sock, extraSelf).map((id) => `@${userPart(id)}`).filter((tag) => tag.length > 1));
-  tags.add('@askback');
-  tags.add('@askbak');
+  BOT_ALIASES.forEach((a) => tags.add(`@${a}`));
   for (const tag of tags) {
     body = body.replace(new RegExp(`(^|\\s)${escapeRegExp(tag)}\\b`, 'gi'), '$1');
   }
