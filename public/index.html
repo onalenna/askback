@@ -3,361 +3,721 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>askBack</title>
-  <link rel="stylesheet" href="{{BASE}}/css/admin.css?v=analytics" />
+  <title>askBack — Admin</title>
+  <link rel="stylesheet" href="{{BASE}}/css/admin.css?v=sidebar-1" />
   <script>window.ASKBACK_BASE = "{{BASE}}";</script>
+  <style>
+    /* ── Reset & tokens ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --navy:     #0f2a4a;
+      --navy-2:   #1a3a5e;
+      --navy-3:   #234d7a;
+      --accent:   #1668b4;
+      --gold:     #e8a020;
+      --white:    #ffffff;
+      --surface:  #f8fafc;
+      --wash:     #f1f5f9;
+      --line:     #e2e8f0;
+      --ink:      #1c2b3a;
+      --ink-2:    #3a4f63;
+      --muted:    #64748b;
+      --danger:   #dc2626;
+      --danger-w: #fef2f2;
+      --success:  #16a34a;
+      --sidebar-w: 220px;
+      --header-h:  60px;
+      --radius:    10px;
+      --radius-sm: 6px;
+    }
+    body { font-family: system-ui, "Segoe UI", Arial, sans-serif; background: var(--surface); color: var(--ink); display: flex; min-height: 100vh; font-size: 15px; }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: var(--sidebar-w);
+      background: var(--navy);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0; left: 0;
+      height: 100vh;
+      z-index: 40;
+      overflow-y: auto;
+    }
+    .sidebar-brand {
+      padding: 18px 16px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+    }
+    .sidebar-brand .brand-icon {
+      width: 34px; height: 34px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .sidebar-brand .brand-icon svg { width: 18px; height: 18px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .sidebar-brand .brand-name { font-weight: 800; font-size: 17px; color: #fff; letter-spacing: -.3px; }
+    .sidebar-brand .brand-sub  { font-size: 11px; color: rgba(255,255,255,.5); margin-top: 1px; }
+
+    .sidebar-section-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      color: rgba(255,255,255,.35);
+      padding: 18px 16px 6px;
+    }
+
+    .nav-list { list-style: none; padding: 0 8px; }
+    .nav-list li { margin-bottom: 2px; }
+    .nav-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      background: none;
+      border: none;
+      border-radius: var(--radius-sm);
+      color: rgba(255,255,255,.7);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: left;
+      transition: background .15s, color .15s;
+      position: relative;
+    }
+    .nav-btn svg { width: 17px; height: 17px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .nav-btn:hover { background: rgba(255,255,255,.08); color: #fff; }
+    .nav-btn[aria-selected="true"] { background: rgba(255,255,255,.12); color: #fff; font-weight: 600; }
+    .nav-btn[aria-selected="true"]::before {
+      content: "";
+      position: absolute;
+      left: 0; top: 4px; bottom: 4px;
+      width: 3px;
+      background: var(--gold);
+      border-radius: 0 3px 3px 0;
+    }
+    .nav-badge {
+      margin-left: auto;
+      font-size: 11px;
+      font-weight: 700;
+      background: var(--accent);
+      color: #fff;
+      padding: 1px 6px;
+      border-radius: 20px;
+      line-height: 1.6;
+    }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 14px 16px;
+      border-top: 1px solid rgba(255,255,255,.1);
+    }
+    .bot-status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .bot-status-label { font-size: 12px; color: rgba(255,255,255,.6); }
+    /* reuse existing switch styles */
+
+    /* ── Shell ── */
+    .shell { flex: 1; margin-left: var(--sidebar-w); display: flex; flex-direction: column; min-height: 100vh; }
+
+    /* ── Top bar ── */
+    .topbar {
+      height: var(--header-h);
+      background: var(--white);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      gap: 12px;
+    }
+    .topbar-title { font-size: 17px; font-weight: 700; color: var(--ink); flex: 1; }
+    .topbar-sub   { font-size: 13px; color: var(--muted); }
+    #wa-status-dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+    }
+    #wa-status-dot.connected { background: var(--success); }
+    #wa-status-dot.disconnected { background: var(--danger); }
+
+    /* ── Content area ── */
+    .content { flex: 1; padding: 24px; max-width: 900px; }
+
+    /* ── Panel (replaces .card) ── */
+    .panel {
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+      margin-bottom: 20px;
+    }
+    .panel-header { margin-bottom: 16px; }
+    .panel-title  { font-size: 16px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+    .panel-sub    { font-size: 13px; color: var(--muted); }
+
+    /* ── Forms ── */
+    .field-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+    .field-row .field { flex: 1; min-width: 160px; }
+    label.field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 500; color: var(--ink-2); }
+    input[type="text"], input[type="tel"], textarea, select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      color: var(--ink);
+      background: var(--white);
+      transition: border-color .15s;
+    }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+    .file-pick-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border: 1.5px dashed var(--line);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color .15s, color .15s;
+      width: 100%;
+      justify-content: center;
+    }
+    .file-pick-label:hover { border-color: var(--accent); color: var(--accent); }
+    .file-pick input[type="file"] { display: none; }
+
+    /* ── Buttons ── */
+    button, .btn { cursor: pointer; font-size: 14px; font-weight: 600; border: none; border-radius: var(--radius-sm); padding: 8px 16px; transition: opacity .15s, background .15s; }
+    button[type="submit"], .btn-primary { background: var(--navy); color: #fff; }
+    button[type="submit"]:hover, .btn-primary:hover { background: var(--navy-2); }
+    button.ghost, .btn-ghost { background: var(--wash); color: var(--ink-2); border: 1px solid var(--line); }
+    button.ghost:hover { background: var(--line); }
+    .btn-danger { background: var(--danger-w); color: var(--danger); border: 1px solid #fecaca; }
+
+    /* ── Lists ── */
+    .item-list { list-style: none; }
+    .item-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--wash); font-size: 14px; }
+    .item-list li:last-child { border-bottom: none; }
+    .item-list .item-name { flex: 1; font-weight: 500; color: var(--ink); }
+    .item-list .item-meta { font-size: 12px; color: var(--muted); }
+    .item-list .item-actions { display: flex; gap: 6px; }
+
+    /* ── Toggle row ── */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--wash);
+    }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-label { font-size: 14px; font-weight: 600; color: var(--ink); }
+    .toggle-sub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* ── Stats grid ── */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; margin-bottom: 20px; }
+    .stat-card { background: var(--wash); border-radius: var(--radius-sm); padding: 16px; }
+    .stat-value { font-size: 26px; font-weight: 800; color: var(--navy); }
+    .stat-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* ── QA list ── */
+    .qa-item { background: var(--wash); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 10px; }
+    .qa-q { font-weight: 600; font-size: 13px; color: var(--ink); margin-bottom: 6px; }
+    .qa-a { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+    .qa-meta { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+    /* ── Hint / status ── */
+    .hint { font-size: 13px; color: var(--muted); margin-top: 6px; }
+    .hint.success { color: var(--success); }
+    .hint.error   { color: var(--danger); }
+
+    /* ── Pair box (WhatsApp QR) ── */
+    .pair-box {
+      background: var(--wash);
+      border-radius: var(--radius-sm);
+      padding: 20px;
+      text-align: center;
+      margin-bottom: 16px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+    .pair-box canvas { margin: 0 auto; display: block; }
+
+    /* ── Section visibility ── */
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── Danger zone ── */
+    .danger-zone { border: 1px solid #fecaca; border-radius: var(--radius-sm); padding: 16px; background: var(--danger-w); }
+    .danger-zone h4 { font-size: 14px; font-weight: 700; color: var(--danger); margin-bottom: 8px; }
+
+    /* ── Pager ── */
+    .list-pager { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+    .list-pager button { padding: 5px 10px; font-size: 12px; }
+
+    /* ── Subsection divider ── */
+    .sub-divider { border: none; border-top: 1px solid var(--line); margin: 20px 0; }
+
+    /* ── Mobile: collapse sidebar ── */
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); transition: transform .2s; }
+      .sidebar.open { transform: translateX(0); }
+      .shell { margin-left: 0; }
+      .topbar { padding: 0 16px; }
+      .content { padding: 16px; }
+      .menu-toggle { display: flex; }
+    }
+    .menu-toggle {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 36px; height: 36px;
+      background: none;
+      border: none;
+      color: var(--ink);
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
-  <header class="site-header">
-    <div class="header-inner">
-      <a class="brand" href="#knowledge" aria-label="askBack">
-        <span class="brand-logos">
-          <img class="logo logo-undp" src="{{BASE}}/images/undp-logo.png" alt="UNDP" />
-          <span class="logo-rule" aria-hidden="true"></span>
-          <img class="logo logo-unipod" src="{{BASE}}/images/unipod-logo.svg" alt="UniPod" />
-        </span>
-        <span class="bot-name">askBack</span>
-      </a>
 
-      <button
-        type="button"
-        id="bot-toggle"
-        class="switch"
-        role="switch"
-        aria-checked="true"
-        aria-label="askBack replies"
-        title="On: askBack answers WhatsApp messages. Off: it stays quiet."
-      >
+<!-- ═══════════════════ SIDEBAR ═══════════════════ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-icon">
+      <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </div>
+    <div>
+      <div class="brand-name">askBack</div>
+      <div class="brand-sub">Admin dashboard</div>
+    </div>
+  </div>
+
+  <span class="sidebar-section-label">Main</span>
+  <ul class="nav-list" role="tablist">
+    <li>
+      <button class="nav-btn" id="tab-status" role="tab" aria-controls="status" aria-selected="true" data-page="status">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
+        Status
+      </button>
+    </li>
+    <li>
+      <button class="nav-btn" id="tab-knowledge" role="tab" aria-controls="knowledge" aria-selected="false" data-page="knowledge">
+        <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        Knowledge
+      </button>
+    </li>
+    <li>
+      <button class="nav-btn" id="tab-groups" role="tab" aria-controls="groups" aria-selected="false" data-page="groups">
+        <svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3"/><circle cx="16.5" cy="10.5" r="2.5"/><path d="M4 19a5 5 0 0 1 10 0M13.5 19a4 4 0 0 1 7 0"/></svg>
+        Groups &amp; Features
+      </button>
+    </li>
+    <li>
+      <button class="nav-btn" id="tab-activity" role="tab" aria-controls="activity" aria-selected="false" data-page="activity">
+        <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Activity
+      </button>
+    </li>
+    <li>
+      <button class="nav-btn" id="tab-analytics" role="tab" aria-controls="analytics" aria-selected="false" data-page="analytics">
+        <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-8M21 20H3"/></svg>
+        Analytics
+      </button>
+    </li>
+  </ul>
+
+  <span class="sidebar-section-label">Settings</span>
+  <ul class="nav-list" role="tablist">
+    <li>
+      <button class="nav-btn" id="tab-broadcast" role="tab" aria-controls="broadcast" aria-selected="false" data-page="broadcast">
+        <svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.44 2 2 0 0 1 3.61 1.25h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6 6l1.27-.95a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21.72 17z"/></svg>
+        Broadcast
+      </button>
+    </li>
+    <li>
+      <button class="nav-btn" id="tab-stickers" role="tab" aria-controls="stickers" aria-selected="false" data-page="stickers">
+        <svg viewBox="0 0 24 24"><path d="M14.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9.5"/><path d="M14.5 3C14.5 3 19 3 19 7.5V14"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M20.4 13.5 14 20l-4-4 8.4-8.4"/></svg>
+        Stickers
+      </button>
+    </li>
+    <li>
+      <button class="nav-btn" id="tab-admins-page" role="tab" aria-controls="admins-page" aria-selected="false" data-page="admins-page">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
+        Admins
+      </button>
+    </li>
+    <li>
+      <button class="nav-btn" id="tab-control" role="tab" aria-controls="control" aria-selected="false" data-page="control">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.14-1.4l2-1.55-2-3.46-2.36.95A7 7 0 0 0 14.07 5L13.7 2.5h-3.4L9.93 5a7 7 0 0 0-2.43 1.4l-2.36-.8-2 3.47 2 1.54a7.1 7.1 0 0 0 0 2.8l-2 1.55 2 3.46 2.36-.95a7 7 0 0 0 2.43 1.4l.37 2.53h3.4l.37-2.52a7 7 0 0 0 2.43-1.4l2.36.94 2-3.46-2-1.54c.09-.46.14-.93.14-1.42Z"/></svg>
+        Control
+      </button>
+    </li>
+  </ul>
+
+  <div class="sidebar-footer">
+    <div class="bot-status-row">
+      <div>
+        <div class="bot-status-label">Bot replies</div>
+      </div>
+      <button type="button" id="bot-toggle" class="switch" role="switch" aria-checked="true" aria-label="askBack replies" title="On: askBack answers WhatsApp messages. Off: it stays quiet.">
         <span class="switch-thumb" aria-hidden="true"></span>
       </button>
-
-      <nav class="tabs" id="site-nav" role="tablist" aria-label="Sections">
-        <button type="button" role="tab" id="tab-knowledge" aria-controls="knowledge" aria-selected="true">Knowledge</button>
-        <button type="button" role="tab" id="tab-groups" aria-controls="groups" aria-selected="false" tabindex="-1">Groups</button>
-        <button type="button" role="tab" id="tab-status" aria-controls="status" aria-selected="false" tabindex="-1">Status</button>
-        <button type="button" role="tab" id="tab-activity" aria-controls="activity" aria-selected="false" tabindex="-1">Activity</button>
-        <button type="button" role="tab" id="tab-analytics" aria-controls="analytics" aria-selected="false" tabindex="-1">Analytics</button>
-        <button type="button" role="tab" id="tab-control" aria-controls="control" aria-selected="false" tabindex="-1">Control</button>
-      </nav>
     </div>
+  </div>
+</aside>
+
+<!-- ═══════════════════ SHELL ═══════════════════ -->
+<div class="shell">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <button class="menu-toggle" id="menu-toggle" aria-label="Open menu">
+      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    </button>
+    <span id="wa-status-dot" title="WhatsApp connection"></span>
+    <span class="topbar-title" id="page-title">Status</span>
+    <span class="topbar-sub" id="page-sub"></span>
   </header>
 
-  <main class="wrap">
-    <p class="lede">askBack answers private WhatsApp chats when that is on. In groups you turn on, it answers only when tagged. It reads the chat, files, images, and documents. If it does not understand, it stays quiet.</p>
+  <!-- Content -->
+  <main class="content">
 
-    <section class="card" id="knowledge" role="tabpanel" aria-labelledby="tab-knowledge">
-      <h2>Knowledge</h2>
-      <p class="hint">Upload one or more files: WhatsApp chat exports (<code>.txt</code> or zip with media), PDFs, images, Word/Excel/PowerPoint, or audio. Stickers have their own section below.</p>
-      <form id="upload-form" class="upload-form">
-        <label class="field name-field">
-          <span>Name</span>
-          <input
-            type="text"
-            id="doc-title"
-            name="title"
-            placeholder="e.g. Meeting notes, Group chat"
-            maxlength="120"
-            autocomplete="off"
-            required
-          />
-        </label>
-        <label class="file-pick">
-          <input
-            type="file"
-            id="file"
-            name="file"
-            accept=".txt,.zip,.pdf,.jpg,.jpeg,.png,.gif,.webp,.docx,.xlsx,.pptx,.mp3,.wav,.m4a,.ogg,image/*,audio/*,application/pdf"
-            multiple
-            required
-          />
-          <span id="file-label">Choose files</span>
-        </label>
-        <button type="submit">Add</button>
-      </form>
-      <p id="upload-status" class="hint"></p>
-      <ul id="docs" class="file-list"></ul>
-      <nav id="docs-pager" class="list-pager" hidden aria-label="Knowledge files pages"></nav>
+    <!-- ── STATUS ── -->
+    <div class="page active" id="status" role="tabpanel" aria-labelledby="tab-status">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">WhatsApp connection</div>
+          <div class="panel-sub">Scan the QR code below to pair this bot with a WhatsApp account.</div>
+        </div>
+        <div id="wa-pair" class="pair-box">Waiting for WhatsApp…</div>
+        <div class="stats-grid" id="stats-grid">Loading…</div>
+      </div>
+    </div>
 
-      <div class="subsection" id="stickers-section">
-        <h3>Stickers</h3>
-        <p class="hint">Loaded from the <code>stickers/</code> folder in the project. Drop <code>.webp</code> / <code>.png</code> files there (or upload below). Name them clearly, e.g. <code>friend.png</code>, <code>thanks.webp</code>.</p>
-        <form id="sticker-form" class="upload-form">
-          <label class="field name-field">
-            <span>Pack name</span>
-            <input
-              type="text"
-              id="sticker-title"
-              name="title"
-              placeholder="e.g. Friendly pack"
-              maxlength="120"
-              autocomplete="off"
-              required
-            />
-          </label>
-          <label class="file-pick">
-            <input
-              type="file"
-              id="sticker-file"
-              name="file"
-              accept=".webp,.png,.jpg,.jpeg,.gif,image/webp,image/png,image/jpeg,image/gif"
-              multiple
-              required
-            />
-            <span id="sticker-file-label">Choose stickers</span>
-          </label>
-          <button type="submit">Add stickers</button>
+    <!-- ── KNOWLEDGE ── -->
+    <div class="page" id="knowledge" role="tabpanel" aria-labelledby="tab-knowledge">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Upload knowledge</div>
+          <div class="panel-sub">Add files — WhatsApp chat exports (.txt / zip), PDFs, images, Word, Excel, PowerPoint, or audio.</div>
+        </div>
+        <form id="upload-form">
+          <div class="field-row">
+            <label class="field">
+              <span>Name</span>
+              <input type="text" id="doc-title" name="title" placeholder="e.g. Meeting notes" maxlength="120" autocomplete="off" required />
+            </label>
+            <label class="file-pick file-pick-label">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span id="file-label">Choose files</span>
+              <input type="file" id="file" name="file" accept=".txt,.zip,.pdf,.jpg,.jpeg,.png,.gif,.webp,.docx,.xlsx,.pptx,.mp3,.wav,.m4a,.ogg,image/*,audio/*,application/pdf" multiple required />
+            </label>
+            <button type="submit">Add</button>
+          </div>
         </form>
-        <p id="sticker-status" class="hint"></p>
-        <ul id="stickers" class="file-list sticker-list"></ul>
-        <nav id="stickers-pager" class="list-pager" hidden aria-label="Sticker pages"></nav>
+        <p id="upload-status" class="hint"></p>
+        <ul id="docs" class="item-list"></ul>
+        <nav id="docs-pager" class="list-pager" hidden aria-label="Knowledge files pages"></nav>
+      </div>
+    </div>
+
+    <!-- ── GROUPS & FEATURES ── -->
+    <div class="page" id="groups" role="tabpanel" aria-labelledby="tab-groups">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Chat groups</div>
+          <div class="panel-sub">Enable groups where askBack should reply when tagged.</div>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Private chats</div>
+            <div class="toggle-sub" id="private-chats-meta">Answering in one-to-one chats</div>
+          </div>
+          <button type="button" id="private-chats-toggle" class="switch" role="switch" aria-checked="true" aria-label="Private chats"><span class="switch-thumb"></span></button>
+        </div>
+        <ul id="group-list" class="item-list"></ul>
       </div>
 
-      <div class="subsection">
-        <h3>Send to a group</h3>
-        <p class="hint">Type a message, pick text or a voice note, then askBack will post it in the WhatsApp group you pick. This voice is also used when askBack replies to a voice note.</p>
-        <form id="send-form" class="send-form">
-          <label class="field">
-            <span>Group</span>
-            <select id="send-group" required>
-              <option value="">Choose a group</option>
-            </select>
-          </label>
-          <label class="field">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Features</div>
+          <div class="panel-sub">Toggle bot behaviours for all enabled groups.</div>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Daily briefing</div>
+            <div class="toggle-sub" id="daily-digest-meta">Every day at 5:00 CAT: yesterday recap + today deadlines</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button type="button" id="daily-digest-run" class="ghost" style="font-size:12px;padding:5px 10px">Send now</button>
+            <button type="button" id="daily-digest-toggle" class="switch" role="switch" aria-checked="true" aria-label="Daily briefing"><span class="switch-thumb"></span></button>
+          </div>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Deadline reminders</div>
+            <div class="toggle-sub" id="deadline-reminders-meta">Ping groups 30 min before deadlines or scheduled items</div>
+          </div>
+          <button type="button" id="deadline-reminders-toggle" class="switch" role="switch" aria-checked="true" aria-label="Deadline reminders"><span class="switch-thumb"></span></button>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Meeting summaries</div>
+            <div class="toggle-sub" id="meeting-summaries-meta">Auto-summarize uploaded call and meeting recordings</div>
+          </div>
+          <button type="button" id="meeting-summaries-toggle" class="switch" role="switch" aria-checked="true" aria-label="Meeting summaries"><span class="switch-thumb"></span></button>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Already-answered note</div>
+            <div class="toggle-sub" id="repeat-nudge-meta">Say when a question was answered before</div>
+          </div>
+          <button type="button" id="repeat-nudge-toggle" class="switch" role="switch" aria-checked="true" aria-label="Already-answered note"><span class="switch-thumb"></span></button>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Show sources</div>
+            <div class="toggle-sub" id="show-sources-meta">Append a short source note to file-based answers</div>
+          </div>
+          <button type="button" id="show-sources-toggle" class="switch" role="switch" aria-checked="true" aria-label="Show sources"><span class="switch-thumb"></span></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ACTIVITY ── -->
+    <div class="page" id="activity" role="tabpanel" aria-labelledby="tab-activity">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Recent activity</div>
+          <div class="panel-sub">Questions asked and answers given by askBack.</div>
+        </div>
+        <ul id="qa" class="item-list"></ul>
+        <nav id="qa-pager" class="list-pager" hidden aria-label="Activity pages"></nav>
+      </div>
+    </div>
+
+    <!-- ── ANALYTICS ── -->
+    <div class="page" id="analytics" role="tabpanel" aria-labelledby="tab-analytics">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Analytics</div>
+          <div class="panel-sub">Activity from what askBack has seen. Counts reflect active participants and recent traffic.</div>
+        </div>
+        <div class="stats-grid" id="analytics-summary">Loading…</div>
+        <div id="analytics-body"></div>
+      </div>
+    </div>
+
+    <!-- ── BROADCAST ── -->
+    <div class="page" id="broadcast" role="tabpanel" aria-labelledby="tab-broadcast">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Send to a group</div>
+          <div class="panel-sub">Type a message, pick text or a voice note, then askBack will post it in the WhatsApp group you pick.</div>
+        </div>
+        <form id="send-form">
+          <div class="field-row">
+            <label class="field">
+              <span>Group</span>
+              <select id="send-group" required><option value="">Choose a group</option></select>
+            </label>
+          </div>
+          <label class="field" style="margin-bottom:12px">
             <span>Message</span>
-            <textarea
-              id="send-text"
-              name="text"
-              rows="3"
-              maxlength="4000"
-              placeholder="Write the message…"
-              required
-            ></textarea>
+            <textarea id="send-text" name="text" rows="4" maxlength="4000" placeholder="Write the message…" required></textarea>
           </label>
-          <fieldset class="send-as">
-            <legend>Send as</legend>
-            <label class="send-choice">
-              <input type="radio" name="send-as" value="text" checked />
-              <span>Text</span>
+          <div class="field-row" style="align-items:center">
+            <fieldset class="send-as" style="border:1px solid var(--line);border-radius:var(--radius-sm);padding:8px 12px;display:flex;gap:16px">
+              <legend style="font-size:12px;font-weight:600;color:var(--muted);padding:0 4px">Send as</legend>
+              <label class="send-choice" style="display:flex;align-items:center;gap:6px;font-size:14px;cursor:pointer"><input type="radio" name="send-as" value="text" checked /><span>Text</span></label>
+              <label class="send-choice" style="display:flex;align-items:center;gap:6px;font-size:14px;cursor:pointer"><input type="radio" name="send-as" value="voice" /><span>Voice note</span></label>
+            </fieldset>
+            <label class="field">
+              <span>Voice</span>
+              <select id="tts-voice"></select>
             </label>
-            <label class="send-choice">
-              <input type="radio" name="send-as" value="voice" />
-              <span>Voice note</span>
-            </label>
-          </fieldset>
-          <label class="field">
-            <span>Select voice</span>
-            <select id="tts-voice"></select>
-          </label>
-          <button type="submit">Send</button>
+            <button type="submit" style="align-self:flex-end">Send</button>
+          </div>
         </form>
         <p id="send-status" class="hint"></p>
       </div>
+    </div>
 
-      <div class="subsection">
-        <h3>Admins</h3>
-        <p class="hint">In a group, tag askBack if it has no answer — it will tag these people instead of guessing.</p>
-        <form id="admin-form" class="admin-form">
-          <label class="field">
-            <span>Name</span>
-            <input type="text" id="admin-name" name="name" placeholder="e.g. Moeng" maxlength="80" autocomplete="name" required />
-          </label>
-          <label class="field">
-            <span>WhatsApp number</span>
-            <input type="tel" id="admin-phone" name="phone" placeholder="+267 76 123 456" inputmode="tel" autocomplete="tel" required />
-          </label>
-          <button type="submit">Add</button>
+    <!-- ── STICKERS ── -->
+    <div class="page" id="stickers" role="tabpanel" aria-labelledby="tab-stickers">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Sticker library</div>
+          <div class="panel-sub">Loaded from the <code>stickers/</code> folder. Drop <code>.webp</code> / <code>.png</code> files there or upload below.</div>
+        </div>
+        <form id="sticker-form">
+          <div class="field-row">
+            <label class="field">
+              <span>Pack name</span>
+              <input type="text" id="sticker-title" name="title" placeholder="e.g. Friendly pack" maxlength="120" autocomplete="off" required />
+            </label>
+            <label class="file-pick file-pick-label">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span id="sticker-file-label">Choose stickers</span>
+              <input type="file" id="sticker-file" name="file" accept=".webp,.png,.jpg,.jpeg,.gif,image/webp,image/png,image/jpeg,image/gif" multiple required />
+            </label>
+            <button type="submit">Add stickers</button>
+          </div>
+        </form>
+        <p id="sticker-status" class="hint"></p>
+        <ul id="stickers" class="item-list"></ul>
+        <nav id="stickers-pager" class="list-pager" hidden aria-label="Sticker pages"></nav>
+      </div>
+    </div>
+
+    <!-- ── ADMINS ── -->
+    <div class="page" id="admins-page" role="tabpanel" aria-labelledby="tab-admins-page">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Bot admins</div>
+          <div class="panel-sub">In a group, when askBack has no answer it tags these people instead of guessing.</div>
+        </div>
+        <form id="admin-form">
+          <div class="field-row">
+            <label class="field">
+              <span>Name</span>
+              <input type="text" id="admin-name" name="name" placeholder="e.g. Moeng" maxlength="80" autocomplete="name" required />
+            </label>
+            <label class="field">
+              <span>WhatsApp number</span>
+              <input type="tel" id="admin-phone" name="phone" placeholder="+267 76 123 456" inputmode="tel" autocomplete="tel" required />
+            </label>
+            <button type="submit" style="align-self:flex-end">Add</button>
+          </div>
         </form>
         <p id="admin-status" class="hint"></p>
-        <ul id="admins" class="file-list"></ul>
+        <ul id="admins" class="item-list"></ul>
       </div>
-    </section>
+    </div>
 
-    <section class="card" id="groups" role="tabpanel" aria-labelledby="tab-groups" hidden>
-      <h2>Groups</h2>
-      <p class="hint">Turn private chats or a group on. In groups, askBack answers only when tagged. Community hubs stay silent so a reply is not copied into every linked group.</p>
-      <ul class="file-list">
-        <li class="group-item">
-          <div>
-            <h3>Private chats</h3>
-            <p class="meta" id="private-chats-meta">Answering in one-to-one chats</p>
-          </div>
-          <button
-            type="button"
-            id="private-chats-toggle"
-            class="switch"
-            role="switch"
-            aria-checked="true"
-            aria-label="Private chats"
-            title="On: askBack answers private WhatsApp chats. Off: it stays quiet in private chats."
-          >
-            <span class="switch-thumb" aria-hidden="true"></span>
-          </button>
-        </li>
-        <li class="group-item">
-          <div>
-            <h3>Daily briefing</h3>
-            <p class="meta" id="daily-digest-meta">Every day at 5:00 CAT: yesterday recap + today deadlines</p>
-          </div>
-          <div class="group-actions">
-            <button type="button" id="daily-digest-run" class="ghost">Send now</button>
-            <button
-              type="button"
-              id="daily-digest-toggle"
-              class="switch"
-              role="switch"
-              aria-checked="true"
-              aria-label="Daily briefing"
-              title="On: send a short briefing to enabled groups each day at 5:00 CAT."
-            >
-              <span class="switch-thumb" aria-hidden="true"></span>
-            </button>
-          </div>
-        </li>
-        <li class="group-item">
-          <div>
-            <h3>Deadline reminders</h3>
-            <p class="meta" id="deadline-reminders-meta">Ping enabled groups 30 minutes before deadlines or scheduled items</p>
-          </div>
-          <button
-            type="button"
-            id="deadline-reminders-toggle"
-            class="switch"
-            role="switch"
-            aria-checked="true"
-            aria-label="Deadline reminders"
-            title="On: remind everyone in enabled groups 30 minutes before a deadline or scheduled item."
-          >
-            <span class="switch-thumb" aria-hidden="true"></span>
-          </button>
-        </li>
-        <li class="group-item">
-          <div>
-            <h3>Meeting summaries</h3>
-            <p class="meta" id="meeting-summaries-meta">Auto-summarize uploaded call and meeting recordings</p>
-          </div>
-          <button
-            type="button"
-            id="meeting-summaries-toggle"
-            class="switch"
-            role="switch"
-            aria-checked="true"
-            aria-label="Meeting summaries"
-            title="On: turn an uploaded recording into Key points, Decisions and Action items so members can ask what they missed."
-          >
-            <span class="switch-thumb" aria-hidden="true"></span>
-          </button>
-        </li>
-        <li class="group-item">
-          <div>
-            <h3>Already-answered note</h3>
-            <p class="meta" id="repeat-nudge-meta">Say when a question was already answered before</p>
-          </div>
-          <button
-            type="button"
-            id="repeat-nudge-toggle"
-            class="switch"
-            role="switch"
-            aria-checked="true"
-            aria-label="Already-answered note"
-            title="On: prepend a short 'this came up before' note when reusing a past answer."
-          >
-            <span class="switch-thumb" aria-hidden="true"></span>
-          </button>
-        </li>
-        <li class="group-item">
-          <div>
-            <h3>Show sources</h3>
-            <p class="meta" id="show-sources-meta">Add a one-line source note to answers from a file</p>
-          </div>
-          <button
-            type="button"
-            id="show-sources-toggle"
-            class="switch"
-            role="switch"
-            aria-checked="true"
-            aria-label="Show sources"
-            title="On: append a short 'Source: <file>' line to answers built from an uploaded document."
-          >
-            <span class="switch-thumb" aria-hidden="true"></span>
-          </button>
-        </li>
-      </ul>
-      <ul id="group-list" class="file-list group-list-rest"></ul>
-    </section>
-
-    <section class="card" id="status" role="tabpanel" aria-labelledby="tab-status" hidden>
-      <h2>Status</h2>
-      <div id="wa-pair" class="pair-box">Waiting for WhatsApp…</div>
-      <div class="grid" id="stats-grid">Loading…</div>
-    </section>
-
-    <section class="card" id="activity" role="tabpanel" aria-labelledby="tab-activity" hidden>
-      <h2>Activity</h2>
-      <ul id="qa" class="qa-list"></ul>
-      <nav id="qa-pager" class="list-pager" hidden aria-label="Activity pages"></nav>
-    </section>
-
-    <section class="card" id="analytics" role="tabpanel" aria-labelledby="tab-analytics" hidden>
-      <h2>Analytics</h2>
-      <p class="hint">Activity from what askBack has seen. Member and message counts reflect active participants and recent traffic, not the full group roster or full history.</p>
-      <div class="grid" id="analytics-summary">Loading…</div>
-      <div id="analytics-body"></div>
-    </section>
-
-    <section class="card" id="control" role="tabpanel" aria-labelledby="tab-control" hidden>
-      <h2>Control</h2>
-      <p class="hint">Developer controls for the whole bot. Answer tuning saves live, no restart needed.</p>
-      <div class="grid" id="control-status">Loading…</div>
-
-      <div class="subsection">
-        <h3>Answer tuning</h3>
-        <p class="hint">Higher match threshold = stricter (fewer but surer answers). Top-K = how many knowledge pieces feed the model.</p>
+    <!-- ── CONTROL ── -->
+    <div class="page" id="control" role="tabpanel" aria-labelledby="tab-control">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Answer tuning</div>
+          <div class="panel-sub">Higher match threshold = stricter (fewer but surer answers). Changes save live, no restart needed.</div>
+        </div>
+        <div class="stats-grid" id="control-status">Loading…</div>
         <div id="control-tuning"></div>
       </div>
 
-      <div class="subsection">
-        <h3>Danger zone</h3>
-        <p class="hint">These change stored data. Use with care.</p>
-        <div class="group-actions">
-          <button type="button" id="ctl-rebuild" class="ghost">Rebuild embeddings</button>
-          <button type="button" id="ctl-clear-qa" class="ghost">Clear all Q&amp;A history</button>
-          <button type="button" id="ctl-repair" class="ghost">Re-pair WhatsApp</button>
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Danger zone</div>
         </div>
-        <p id="control-action-status" class="hint"></p>
+        <div class="danger-zone">
+          <h4>These actions change stored data and cannot be undone.</h4>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+            <button type="button" id="ctl-rebuild" class="btn-danger">Rebuild embeddings</button>
+            <button type="button" id="ctl-clear-qa" class="btn-danger">Clear all Q&amp;A history</button>
+            <button type="button" id="ctl-repair" class="btn-danger">Re-pair WhatsApp</button>
+          </div>
+          <p id="control-action-status" class="hint"></p>
+        </div>
       </div>
-    </section>
-  </main>
-
-  <dialog id="view-dialog" class="view-dialog">
-    <div class="view-head">
-      <div>
-        <h2 id="view-title">File</h2>
-        <p id="view-meta" class="hint"></p>
-      </div>
-      <button type="button" class="ghost" id="view-close">Close</button>
     </div>
-    <div id="view-body"></div>
-  </dialog>
 
-  <dialog id="edit-dialog">
-    <form id="edit-form">
-      <h2>Edit file</h2>
-      <label class="field">
-        <span>Name</span>
-        <input type="text" id="edit-title" autocomplete="off" maxlength="120" required />
-      </label>
-      <label class="field">
-        <span>Replace file (optional)</span>
-        <input type="file" id="edit-file" />
-      </label>
-      <p id="edit-status" class="hint"></p>
-      <div class="row dialog-actions">
-        <button type="button" class="ghost" id="edit-cancel">Cancel</button>
-        <button type="submit">Save</button>
-      </div>
-    </form>
-  </dialog>
+  </main>
+</div>
 
-  <script src="{{BASE}}/js/admin.js?v=control"></script>
+<!-- Dialogs (unchanged — admin.js references these IDs) -->
+<dialog id="view-dialog" class="view-dialog" style="border:1px solid var(--line);border-radius:var(--radius);padding:0;max-width:700px;width:95vw;background:var(--white)">
+  <div class="view-head" style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line)">
+    <div><h2 id="view-title" style="font-size:16px;font-weight:700">File</h2><p id="view-meta" class="hint"></p></div>
+    <button type="button" class="ghost" id="view-close">Close</button>
+  </div>
+  <div id="view-body" style="padding:20px;max-height:60vh;overflow-y:auto"></div>
+</dialog>
+
+<dialog id="edit-dialog" style="border:1px solid var(--line);border-radius:var(--radius);padding:24px;max-width:420px;width:95vw;background:var(--white)">
+  <form id="edit-form">
+    <h2 style="font-size:16px;font-weight:700;margin-bottom:16px">Edit file</h2>
+    <label class="field" style="margin-bottom:12px"><span>Name</span><input type="text" id="edit-title" autocomplete="off" maxlength="120" required /></label>
+    <label class="field" style="margin-bottom:12px"><span>Replace file (optional)</span><input type="file" id="edit-file" /></label>
+    <p id="edit-status" class="hint"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button type="button" class="ghost" id="edit-cancel">Cancel</button>
+      <button type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+// ── Sidebar navigation ──────────────────────────────────────────────────────
+const PAGE_TITLES = {
+  status:      ['Status', 'WhatsApp connection & stats'],
+  knowledge:   ['Knowledge', 'Upload files for the bot to learn from'],
+  groups:      ['Groups & Features', 'Manage groups and toggle behaviours'],
+  activity:    ['Activity', 'Recent questions and answers'],
+  analytics:   ['Analytics', 'Usage stats and trends'],
+  broadcast:   ['Broadcast', 'Send a message or voice note to a group'],
+  stickers:    ['Stickers', 'Manage sticker packs'],
+  'admins-page': ['Admins', 'People the bot pings when it has no answer'],
+  control:     ['Control', 'Answer tuning and developer tools'],
+};
+
+function activatePage(id) {
+  // pages
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const page = document.getElementById(id);
+  if (page) page.classList.add('active');
+  // nav buttons
+  document.querySelectorAll('.nav-btn[role="tab"]').forEach(b => {
+    b.setAttribute('aria-selected', b.dataset.page === id ? 'true' : 'false');
+  });
+  // topbar
+  const [title, sub] = PAGE_TITLES[id] || [id, ''];
+  document.getElementById('page-title').textContent = title;
+  document.getElementById('page-sub').textContent = sub;
+  // close mobile sidebar
+  document.getElementById('sidebar').classList.remove('open');
+  // update hash
+  location.hash = id;
+}
+
+document.querySelectorAll('.nav-btn[role="tab"]').forEach(btn => {
+  btn.addEventListener('click', () => activatePage(btn.dataset.page));
+});
+
+// Mobile menu toggle
+document.getElementById('menu-toggle')?.addEventListener('click', () => {
+  document.getElementById('sidebar').classList.toggle('open');
+});
+
+// Restore from hash
+const hash = location.hash.replace('#', '');
+if (hash && document.getElementById(hash)) activatePage(hash);
+else activatePage('status');
+
+// ── WA status dot wiring ────────────────────────────────────────────────────
+// admin.js sets window._waConnected — we poll it to colour the dot
+setInterval(() => {
+  const dot = document.getElementById('wa-status-dot');
+  if (!dot) return;
+  dot.className = window._waConnected === true ? 'connected' : window._waConnected === false ? 'disconnected' : '';
+}, 1000);
+</script>
+
+<script src="{{BASE}}/js/admin.js?v=sidebar-1"></script>
 </body>
 </html>

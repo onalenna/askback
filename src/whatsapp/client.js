@@ -154,14 +154,38 @@ async function startWhatsApp() {
     });
 
     const onMessages = createMessageHandler(() => sock);
-    sock.ev.on('messages.upsert', onMessages);
+
+    // Deduplication: Baileys can fire both messages.upsert AND messages.update
+    // for the same incoming message (e.g. when a message is immediately edited
+    // or its status changes right after delivery), causing the bot to reply twice.
+    // We track processed message IDs in a small rolling Set and skip duplicates.
+    const _seen = new Set();
+    function deduped(handler) {
+      return async (event) => {
+        const msgs = event?.messages ?? [];
+        const fresh = msgs.filter((m) => {
+          const id = m?.key?.id;
+          if (!id || _seen.has(id)) return false;
+          _seen.add(id);
+          // Drop old IDs to keep memory bounded (~200 messages)
+          if (_seen.size > 200) _seen.delete(_seen.values().next().value);
+          return true;
+        });
+        if (!fresh.length) return;
+        return handler({ ...event, messages: fresh });
+      };
+    }
+
+    sock.ev.on('messages.upsert', deduped(onMessages));
+    // messages.update fires for edits/reactions — only pass genuine content
+    // updates (item.update.message set) and run them through the same dedup gate.
     sock.ev.on('messages.update', async (updates) => {
       const messages = [];
       for (const item of updates || []) {
         if (!item?.key || !item.update?.message) continue;
         messages.push({ key: item.key, message: item.update.message });
       }
-      if (messages.length) await onMessages({ type: 'notify', messages });
+      if (messages.length) await deduped(onMessages)({ type: 'notify', messages });
     });
     sock.ev.on('messaging-history.set', ({ messages }) => {
       ingestHistoryMessages(messages);
