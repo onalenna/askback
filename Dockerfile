@@ -1,6 +1,6 @@
 # askBack — WhatsApp bot + admin panel (single Node process)
 # Node 20+ is required (see package.json engines).
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 
 # better-sqlite3 compiles a native addon; python3 + build tools are needed at
 # install time. ffmpeg-static ships its own binary, so no system ffmpeg needed.
@@ -25,9 +25,8 @@ RUN mkdir -p /app/auth_info /app/uploads
 
 EXPOSE 3000
 
-# curl is more reliable than node fetch inside Docker health checks.
-# Start period is 40s to allow the Express server to bind before first check.
-HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=5 \
-  CMD curl -sf http://127.0.0.1:3000/health || exit 1
+# Health checks are managed by Coolify from outside the container.
+# The app exposes GET /health → { ok: true }.
+HEALTHCHECK NONE
 
 CMD ["node", "server.js"]
