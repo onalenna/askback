@@ -133,8 +133,13 @@ h1{font-size:15px;font-weight:600;color:#3a4f63;margin-bottom:20px}
 label{display:block;font-size:13px;font-weight:500;color:#3a4f63;margin-bottom:5px}
 input{width:100%;padding:9px 11px;border:1px solid #e2e8f0;border-radius:6px;font-size:14px;color:#1c2b3a;margin-bottom:14px}
 input:focus{outline:none;border-color:#1668b4}
-button{width:100%;padding:10px;background:#0f2a4a;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer}
-button:hover{background:#1a3a5e}
+.pw-wrap{position:relative;margin-bottom:14px}
+.pw-wrap input{margin-bottom:0;padding-right:42px}
+.pw-eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;padding:4px;cursor:pointer;color:#64748b;display:flex;width:auto}
+.pw-eye:hover{color:#1c2b3a}
+.pw-eye svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.submit-btn{width:100%;padding:10px;background:#0f2a4a;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px}
+.submit-btn:hover{background:#1a3a5e}
 </style>
 </head>
 <body>
@@ -149,10 +154,29 @@ button:hover{background:#1a3a5e}
     <label for="u">Username</label>
     <input id="u" name="username" type="text" autocomplete="username" required autofocus />
     <label for="p">Password</label>
-    <input id="p" name="password" type="password" autocomplete="current-password" required />
-    <button type="submit">Sign in</button>
+    <div class="pw-wrap">
+      <input id="p" name="password" type="password" autocomplete="current-password" required />
+      <button type="button" class="pw-eye" id="pw-toggle" aria-label="Show password" title="Show password">
+        <svg id="eye-show" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        <svg id="eye-hide" viewBox="0 0 24 24" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+      </button>
+    </div>
+    <button type="submit" class="submit-btn">Sign in →</button>
   </form>
 </div>
+<script>
+var btn=document.getElementById('pw-toggle');
+var inp=document.getElementById('p');
+var show=document.getElementById('eye-show');
+var hide=document.getElementById('eye-hide');
+btn.addEventListener('click',function(){
+  var vis=inp.type==='text';
+  inp.type=vis?'password':'text';
+  show.style.display=vis?'':'none';
+  hide.style.display=vis?'none':'';
+  btn.setAttribute('aria-label',vis?'Show password':'Hide password');
+});
+</script>
 </body>
 </html>`;
 }

@@ -42,7 +42,7 @@ if (requireAuth()) {
     res.type('html').send(loginPageHtml(BASE, null));
   });
   app.post(`${BASE}/login`, express.urlencoded({ extended: false }), (req, res) => {
-    const { username = '', password = '' } = req.body;
+    const { username = '', password = '' } = req.body || {};
     if (secretEqual(username, adminUser()) && secretEqual(password, adminPassword())) {
       const token = createSession();
       setSessionCookie(res, token);
