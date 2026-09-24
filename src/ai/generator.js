@@ -76,6 +76,15 @@ function buildPrompt(
     parts.push(
       'This answer will be read aloud as a voice note. Use plain text only. Never use emojis, emoticons, or symbol icons.'
     );
+  } else {
+    parts.push(
+      'FORMAT FOR WHATSAPP so it is easy to scan on a phone:',
+      '- Use WhatsApp syntax only: *bold* with ONE asterisk each side, _italic_ with underscores. Never use **double asterisks**, # headings, or Markdown tables.',
+      '- A one or two sentence answer stays plain, no bullets or headings.',
+      '- For recaps, summaries, lists, or anything longer: start with a short *bold title line*, then group points under *bold section labels* (for example *Yesterday*, *Today*, *Next steps*), each point on its own line starting with "• ".',
+      '- Keep each bullet to one short line. Put a blank line between sections.',
+      '- Bold the key names, dates, times, and deadlines inside bullets.'
+    );
   }
   if (translateDoc) {
     const target = language && language !== 'en' ? languageName(language) : 'English';
@@ -198,10 +207,10 @@ async function once(question, contextChunks, extras, allowGeneral) {
 function stripDoubleHyphens(text) {
   return String(text || '')
     .replace(/\u2014|\u2013/g, ', ')
-    .replace(/\s*--+\s*/g, ', ')
-    .replace(/,\s*,/g, ',')
-    .replace(/\s+,/g, ',')
-    .replace(/,\s+/g, ', ')
+    .replace(/[ \t]*--+[ \t]*/g, ', ')
+    .replace(/,[ \t]*,/g, ',')
+    .replace(/[ \t]+,/g, ',')
+    .replace(/,[ \t]+/g, ', ')
     .trim();
 }
 
@@ -272,8 +281,32 @@ function formatReplyLinks(text) {
   return out.replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/**
+ * Convert Markdown the model slips in to WhatsApp's own syntax:
+ * double-asterisk or double-underscore bold → single-asterisk bold,
+ * # headings → bold line, "-", "*" or "+" list items → "• " bullets.
+ * URLs are left alone so underscores inside links are not touched.
+ */
+function toWhatsAppFormat(text) {
+  return String(text || '')
+    .split('\n')
+    .map((line) => {
+      if (/^\s*(?:https?:\/\/|www\.)\S+\s*$/i.test(line)) return line;
+      let out = line
+        .replace(/^\s*#{1,6}\s+(.+?)\s*#*\s*$/, (_, h) => `*${h.replace(/\*+/g, '')}*`)
+        .replace(/^(\s*)[-*+]\s+/, '$1• ')
+        .replace(/\*\*(.+?)\*\*/g, '*$1*')
+        .replace(/(^|[\s(])__(.+?)__(?=[\s).,!?:;]|$)/g, '$1*$2*');
+      // A bold label with a trailing colon reads better as "*Label:*"
+      out = out.replace(/^\*([^*\n]{1,60})\*:\s*$/, '*$1:*');
+      return out;
+    })
+    .join('\n')
+    .replace(/\*{2,}/g, '*');
+}
+
 function polishAnswer(text) {
-  return formatReplyLinks(stripKnowledgeAttribution(stripDoubleHyphens(text)));
+  return toWhatsAppFormat(formatReplyLinks(stripKnowledgeAttribution(stripDoubleHyphens(text))));
 }
 
 function usable(text) {
