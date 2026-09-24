@@ -90,7 +90,22 @@ const server = app.listen(PORT, HOST, () => {
   } catch (err) {
     console.warn('[stickers] could not sync library:', err.message || err);
   }
-  startWhatsApp().catch((err) => {
+  startWhatsApp().then(() => {
+    setTimeout(() => {
+      try {
+        const { startSessionReminders } = require('./src/whatsapp/sessions');
+        startSessionReminders();
+      } catch (err) {
+        console.warn('[sessions] failed to start reminders:', err.message || err);
+      }
+      try {
+        const { startAutoIngest } = require('./src/whatsapp/autoingest');
+        startAutoIngest();
+      } catch (err) {
+        console.warn('[autoingest] failed to start:', err.message || err);
+      }
+    }, 30000);
+  }).catch((err) => {
     console.error('Failed to start WhatsApp:', err.message || err);
   });
 });

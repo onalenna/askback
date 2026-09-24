@@ -312,9 +312,9 @@ function renderDocs(docs) {
           · ${escapeHtml(d.type)} · ${escapeHtml(d.status)}
           ${d.chunk_count ? ` · ${d.chunk_count} chunks` : ''}
           ${d.sharable ? ' · can send in WhatsApp if asked' : d.downloadable ? ' · used for answers only' : ' · re-upload to keep a copy'}
-          ${d.error ? ` · <span class="error">${escapeHtml(d.error)}</span>` : ''}
           · ${escapeHtml(d.created_at)}
         </p>
+        ${d.error ? `<p class="doc-error-row"><span class="error doc-error-label" title="${escapeHtml(d.error)}">&#9888; ${escapeHtml(d.error.length > 80 ? d.error.slice(0, 80) + '…' : d.error)}</span></p>` : ''}
         <div class="file-actions">
           ${d.viewable ? '<button type="button" class="ghost" data-action="view">View</button>' : ''}
           <button type="button" class="ghost" data-action="edit">Edit</button>
