@@ -175,6 +175,7 @@ async function extractUpcomingEvents() {
   const completion = await openai.chat.completions.create({
     model: require('../ai/embeddings').CHAT_MODEL(),
     temperature: 0.1,
+    max_tokens: 1500,
     response_format: { type: 'json_object' },
     messages: [
       {

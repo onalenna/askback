@@ -151,6 +151,7 @@ async function composeDigest({
   const completion = await openai.chat.completions.create({
     model: require('../ai/embeddings').CHAT_MODEL(),
     temperature: 0.35,
+    max_tokens: 800,
     messages: [
       {
         role: 'system',

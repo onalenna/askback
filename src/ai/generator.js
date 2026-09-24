@@ -32,6 +32,7 @@ function buildPrompt(
     fromVoice = false,
     language = '',
     requireKnown = false,
+    negativeExamples = [],
   } = {}
 ) {
   const sections = (contextChunks || [])
@@ -61,8 +62,8 @@ function buildPrompt(
 
   // Inject negative examples — past answers flagged as wrong by an admin.
   // This teaches the model what NOT to say without any extra training.
-  if (Array.isArray(extras?.negativeExamples) && extras.negativeExamples.length) {
-    const negBlock = extras.negativeExamples
+  if (Array.isArray(negativeExamples) && negativeExamples.length) {
+    const negBlock = negativeExamples
       .map((e, i) => `Example ${i + 1} — Question: "${e.question}" → Bad answer: "${e.answer}"`)
       .join('\n');
     parts.push(
@@ -165,6 +166,9 @@ async function once(question, contextChunks, extras, allowGeneral) {
   const completion = await openai.chat.completions.create({
     model: typeof MODEL === 'function' ? MODEL() : MODEL,
     temperature: allowGeneral ? 0.25 : 0.15,
+    // Without a cap OpenRouter reserves the model's full output (16k tokens)
+    // and returns 402 as soon as the balance can't cover that.
+    max_tokens: 1500,
     messages: [
       {
         role: 'system',
