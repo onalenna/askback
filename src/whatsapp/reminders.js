@@ -1,5 +1,6 @@
 const { statements } = require('../db/queries');
-const { getEmbedding, openai } = require('../ai/embeddings');
+const { getEmbedding } = require('../ai/embeddings');
+const { callWithFallback } = require('../ai/fallback');
 const { searchAll } = require('../ai/search');
 const { polishAnswer } = require('../ai/generator');
 const { getAllowedGroupJids, getGroupMeta, isBroadcastGroup, nameFromHistory } = require('./groups');
@@ -172,7 +173,7 @@ async function extractUpcomingEvents() {
   const chat = recentScheduleSnippets();
   if (!knowledge && !chat) return [];
 
-  const completion = await openai.chat.completions.create({
+  const completion = await callWithFallback({
     model: require('../ai/embeddings').CHAT_MODEL(),
     temperature: 0.1,
     max_tokens: 1500,

@@ -1,6 +1,6 @@
 const { statements } = require('../db/queries');
 const { getEmbedding } = require('../ai/embeddings');
-const { openai } = require('../ai/embeddings');
+const { callWithFallback } = require('../ai/fallback');
 const { searchAll } = require('../ai/search');
 const { polishAnswer } = require('../ai/generator');
 const { getAllowedGroupJids, getGroupMeta, isBroadcastGroup, nameFromHistory } = require('./groups');
@@ -148,7 +148,7 @@ async function composeDigest({
     ? knowledge.map((c, i) => `Section ${i + 1}:\n${c.content}`).join('\n\n').slice(0, 7000)
     : '(nothing found about deadlines or expectations)';
 
-  const completion = await openai.chat.completions.create({
+  const completion = await callWithFallback({
     model: require('../ai/embeddings').CHAT_MODEL(),
     temperature: 0.35,
     max_tokens: 800,

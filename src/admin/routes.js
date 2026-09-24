@@ -13,6 +13,7 @@ const { getMeetingSummaries, setMeetingSummaries } = require('../whatsapp/meetin
 const { buildAnalytics } = require('./analytics');
 const { getTuning, setTuning } = require('../ai/settings');
 const { providerName, CHAT_MODEL, EMBEDDING_MODEL, getEmbeddingsBatch } = require('../ai/embeddings');
+const { PROVIDER_DEFAULTS, getAIKeys, saveAIKeys, makeClientForKey, callWithFallback } = require('../ai/fallback');
 const { getLemonfoxVoice, listLemonfoxVoices, setLemonfoxVoice } = require('../ai/voices');
 const QRCode = require('qrcode');
 const { getSocket, getPairingState, rePairWhatsApp } = require('../whatsapp/client');
@@ -859,6 +860,215 @@ function createAdminRouter() {
   router.delete('/api/availability/:id', (req, res) => {
     const db = require('../db/index');
     db.prepare(`DELETE FROM availability WHERE id = ?`).run(Number(req.params.id));
+    res.json({ ok: true });
+  });
+
+  // ── Auto-ingest control ───────────────────────────────────────────────────
+  router.get('/api/autoingest/status', (_req, res) => {
+    try {
+      const { getStatus } = require('../whatsapp/autoingest');
+      res.json(getStatus());
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/api/autoingest/run', async (_req, res) => {
+    try {
+      const { runAutoIngest } = require('../whatsapp/autoingest');
+      res.json({ ok: true, message: 'Auto-ingest triggered' });
+      setImmediate(() => runAutoIngest().catch(console.error));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/api/autoingest/toggle', express.json(), (req, res) => {
+    try {
+      const { statements } = require('../db/queries');
+      const enabled = req.body?.enabled !== false && req.body?.enabled !== 'off';
+      statements.setSetting.run('auto_ingest_chat', enabled ? 'on' : 'off');
+      res.json({ enabled });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Chat test endpoint ─────────────────────────────────────────────────────
+  router.post('/api/chat/test', express.json(), async (req, res) => {
+    try {
+      const message = String(req.body?.message || '').trim();
+      if (!message) return res.status(400).json({ error: 'message required' });
+      const { openai, CHAT_MODEL, getEmbedding } = require('../ai/embeddings');
+      const { searchAll } = require('../ai/search');
+      const { personaBlock } = require('../ai/persona');
+      const { statements } = require('../db/queries');
+
+      // Get clean topic names from uploaded documents for friendly redirection
+      const allDocs = statements.allDocs?.all?.() || [];
+      const docTopics = [...new Set(
+        allDocs
+          .filter(d => d.chunk_count > 0)
+          .map(d => {
+            let t = (d.title || d.filename || '').replace(/\.[^.]+$/, '').trim();
+            // Strip generic suffixes like "one page", "notes", "pdf", "doc"
+            t = t.replace(/\b(one page|notes?|document|file|pdf|doc|guide)\b/gi, '').trim();
+            // Title-case first letter
+            return t.charAt(0).toUpperCase() + t.slice(1);
+          })
+          .filter(Boolean)
+          .slice(0, 6)
+      )];
+
+      const embedding = await getEmbedding(message);
+      // Vector-only search at the configured threshold (~0.45)
+      const { knowledge } = searchAll(embedding, { query: message, limit: 15 });
+      const sections = knowledge.map((c, i) => `Section ${i + 1}:\n${c.content}`).join('\n\n');
+      const topicsHint = docTopics.length
+        ? `You have knowledge from: ${docTopics.join(', ')}.`
+        : '';
+      const systemContent = sections
+        ? [
+            'You are askBack, a WhatsApp assistant.',
+            personaBlock(),
+            '',
+            'HOW TO ANSWER:',
+            '- Greetings and "who are you" → respond freely.',
+            '- All other questions → build your answer ONLY from facts explicitly stated in the KNOWLEDGE SECTIONS below.',
+            '  * Piece together scattered facts, dates, links, and names from across the sections.',
+            '  * Include exact links and dates when found — never omit or shorten them.',
+            '  * For questions about "how many", "what has been done", or accumulated state, prefer the MOST RECENT information in the sections (look for later dates). Earlier sections may be outdated.',
+            '  * If a keyword from the question appears in the sections but the specific answer does not, say the specific answer is not there.',
+            '  * NEVER use outside general knowledge (geography, history, science, etc.) even if it seems related.',
+            '  * NEVER invent or guess facts, links, or details not explicitly in the sections.',
+            topicsHint,
+            '',
+            '=== KNOWLEDGE SECTIONS ===',
+            sections,
+            '=== END OF KNOWLEDGE ===',
+          ].filter(Boolean).join('\n')
+        : [
+            'You are askBack, a WhatsApp assistant.',
+            personaBlock(),
+            'You may greet users and introduce yourself.',
+            docTopics.length
+              ? `For ALL other questions: say you cannot answer that yet, then invite them to ask about: ${docTopics.join(', ')}.`
+              : 'For ALL other questions: say no documents have been uploaded yet.',
+          ].filter(Boolean).join('\n');
+      const completion = await callWithFallback({
+        model: 'openai/gpt-4o-mini',  // 20× cheaper than gpt-4o
+        max_tokens: 300,               // stops at ~225 words; prevents large reservations
+        messages: [
+          { role: 'system', content: systemContent },
+          { role: 'user', content: message },
+        ],
+      });
+      const reply = completion.choices[0].message.content?.trim()
+        || "I don't have information on that.";
+      res.json({ reply });
+    } catch (err) {
+      console.error('[admin] chat/test failed:', err.message || err);
+      res.status(500).json({ error: err.message || 'Could not generate reply' });
+    }
+  });
+
+  // ── Session schedule management ────────────────────────────────────────────
+  router.get('/api/sessions', (_req, res) => {
+    try {
+      const { getSessions } = require('../whatsapp/sessions');
+      res.json(getSessions());
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/api/sessions', express.json(), (req, res) => {
+    try {
+      const { getSessions, saveSessions } = require('../whatsapp/sessions');
+      const sessions = getSessions();
+      const { name, dayOfWeek, catHour, catMinute, link, detail } = req.body || {};
+      if (!name || dayOfWeek === undefined || catHour === undefined || !link) {
+        return res.status(400).json({ error: 'name, dayOfWeek, catHour, catMinute, link required' });
+      }
+      const id = Date.now().toString(36);
+      sessions.push({ id, name, dayOfWeek: Number(dayOfWeek), catHour: Number(catHour), catMinute: Number(catMinute || 0), link, detail: detail || '', enabled: true });
+      saveSessions(sessions);
+      res.json({ ok: true, id });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/api/sessions/:id/toggle', (req, res) => {
+    try {
+      const { getSessions, saveSessions } = require('../whatsapp/sessions');
+      const sessions = getSessions();
+      const s = sessions.find(s => s.id === req.params.id);
+      if (!s) return res.status(404).json({ error: 'Not found' });
+      s.enabled = !s.enabled;
+      saveSessions(sessions);
+      res.json({ ok: true, enabled: s.enabled });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.delete('/api/sessions/:id', (req, res) => {
+    try {
+      const { getSessions, saveSessions } = require('../whatsapp/sessions');
+      const updated = getSessions().filter(s => s.id !== req.params.id);
+      saveSessions(updated);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── AI key management ─────────────────────────────────────────────────────
+
+  router.get('/api/ai/keys', (_req, res) => {
+    const keys = getAIKeys();
+    res.json(keys.map(k => ({ ...k, key: k.key ? k.key.slice(0, 8) + '••••' + k.key.slice(-4) : '' })));
+  });
+
+  router.post('/api/ai/keys/test', express.json(), async (req, res) => {
+    const { provider, key, model } = req.body || {};
+    if (!provider || !key) return res.status(400).json({ error: 'provider and key required' });
+    try {
+      const { client, model: m } = makeClientForKey({ provider, key, model });
+      const r = await client.chat.completions.create({
+        model: m, max_tokens: 10,
+        messages: [{ role: 'user', content: 'Hi' }],
+      });
+      res.json({ ok: true, model: r.model, tokens: r.usage?.total_tokens });
+    } catch (err) {
+      res.status(400).json({ ok: false, error: err.message || String(err) });
+    }
+  });
+
+  router.post('/api/ai/keys', express.json(), (req, res) => {
+    const { provider, key, model, label } = req.body || {};
+    if (!provider || !key) return res.status(400).json({ error: 'provider and key required' });
+    const keys = getAIKeys();
+    const id = Date.now().toString(36);
+    const def = PROVIDER_DEFAULTS[provider] || {};
+    keys.push({ id, provider, key, model: model || def.defaultModel || '', label: label || '', active: true });
+    saveAIKeys(keys);
+    res.json({ ok: true, id });
+  });
+
+  router.post('/api/ai/keys/:id/toggle', (req, res) => {
+    const keys = getAIKeys();
+    const k = keys.find(k => k.id === req.params.id);
+    if (!k) return res.status(404).json({ error: 'Not found' });
+    k.active = !k.active;
+    saveAIKeys(keys);
+    res.json({ ok: true, active: k.active });
+  });
+
+  router.delete('/api/ai/keys/:id', (req, res) => {
+    const keys = getAIKeys().filter(k => k.id !== req.params.id);
+    saveAIKeys(keys);
     res.json({ ok: true });
   });
 

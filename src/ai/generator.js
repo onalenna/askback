@@ -1,4 +1,5 @@
 const { openai, CHAT_MODEL } = require('./embeddings');
+const { callWithFallback } = require('./fallback');
 const { languageName } = require('./language');
 const { personaBlock } = require('./persona');
 
@@ -163,7 +164,7 @@ function buildPrompt(
 }
 
 async function once(question, contextChunks, extras, allowGeneral) {
-  const completion = await openai.chat.completions.create({
+  const completion = await callWithFallback({
     model: typeof MODEL === 'function' ? MODEL() : MODEL,
     temperature: allowGeneral ? 0.25 : 0.15,
     // Without a cap OpenRouter reserves the model's full output (16k tokens)
